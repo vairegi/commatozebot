@@ -14,16 +14,218 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      moderation_actions: {
+        Row: {
+          action: string
+          actor: string | null
+          actor_telegram_id: number | null
+          chat_id: number
+          created_at: string
+          id: string
+          reason: string | null
+          target_name: string | null
+          target_user_id: number
+        }
+        Insert: {
+          action: string
+          actor?: string | null
+          actor_telegram_id?: number | null
+          chat_id: number
+          created_at?: string
+          id?: string
+          reason?: string | null
+          target_name?: string | null
+          target_user_id: number
+        }
+        Update: {
+          action?: string
+          actor?: string | null
+          actor_telegram_id?: number | null
+          chat_id?: number
+          created_at?: string
+          id?: string
+          reason?: string | null
+          target_name?: string | null
+          target_user_id?: number
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          email: string | null
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
+      telegram_chats: {
+        Row: {
+          chat_id: number
+          first_seen_at: string
+          last_activity_at: string
+          member_count: number | null
+          rules: string | null
+          title: string | null
+          type: string | null
+          username: string | null
+          welcome_enabled: boolean
+          welcome_message: string | null
+        }
+        Insert: {
+          chat_id: number
+          first_seen_at?: string
+          last_activity_at?: string
+          member_count?: number | null
+          rules?: string | null
+          title?: string | null
+          type?: string | null
+          username?: string | null
+          welcome_enabled?: boolean
+          welcome_message?: string | null
+        }
+        Update: {
+          chat_id?: number
+          first_seen_at?: string
+          last_activity_at?: string
+          member_count?: number | null
+          rules?: string | null
+          title?: string | null
+          type?: string | null
+          username?: string | null
+          welcome_enabled?: boolean
+          welcome_message?: string | null
+        }
+        Relationships: []
+      }
+      telegram_members: {
+        Row: {
+          chat_id: number
+          first_name: string | null
+          is_bot: boolean
+          joined_at: string
+          last_name: string | null
+          last_seen_at: string
+          message_count: number
+          status: string
+          user_id: number
+          username: string | null
+          warn_count: number
+        }
+        Insert: {
+          chat_id: number
+          first_name?: string | null
+          is_bot?: boolean
+          joined_at?: string
+          last_name?: string | null
+          last_seen_at?: string
+          message_count?: number
+          status?: string
+          user_id: number
+          username?: string | null
+          warn_count?: number
+        }
+        Update: {
+          chat_id?: number
+          first_name?: string | null
+          is_bot?: boolean
+          joined_at?: string
+          last_name?: string | null
+          last_seen_at?: string
+          message_count?: number
+          status?: string
+          user_id?: number
+          username?: string | null
+          warn_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "telegram_members_chat_id_fkey"
+            columns: ["chat_id"]
+            isOneToOne: false
+            referencedRelation: "telegram_chats"
+            referencedColumns: ["chat_id"]
+          },
+        ]
+      }
+      telegram_messages: {
+        Row: {
+          chat_id: number | null
+          created_at: string
+          message_id: number | null
+          raw_update: Json
+          text: string | null
+          update_id: number
+          user_id: number | null
+        }
+        Insert: {
+          chat_id?: number | null
+          created_at?: string
+          message_id?: number | null
+          raw_update: Json
+          text?: string | null
+          update_id: number
+          user_id?: number | null
+        }
+        Update: {
+          chat_id?: number | null
+          created_at?: string
+          message_id?: number | null
+          raw_update?: Json
+          text?: string | null
+          update_id?: number
+          user_id?: number | null
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +352,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+    },
   },
 } as const
