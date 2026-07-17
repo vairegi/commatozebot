@@ -122,9 +122,6 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
             },
             { onConflict: "chat_id,user_id" },
           );
-          // Increment message count
-          await supabaseAdmin.rpc("noop_ignore_missing" as never, {}).catch(() => {});
-
           const text: string = message.text ?? "";
           const cmd = text.trim().split(/\s+/)[0]?.split("@")[0]?.toLowerCase();
 
