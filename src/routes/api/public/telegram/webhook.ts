@@ -48,14 +48,18 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
             { onConflict: "chat_id" },
           );
           // Store bot status via a follow-up update (columns may be added later; ignore if missing)
-          await supabaseAdmin
-            .from("telegram_chats")
-            .update({
-              bot_status: newStatus ?? null,
-              bot_is_admin: isAdmin,
-              bot_status_checked_at: new Date().toISOString(),
-            } as any)
-            .eq("chat_id", c.id);
+          try {
+            await supabaseAdmin
+              .from("telegram_chats")
+              .update({
+                bot_status: newStatus ?? null,
+                bot_is_admin: isAdmin,
+                bot_status_checked_at: new Date().toISOString(),
+              } as any)
+              .eq("chat_id", c.id);
+          } catch (e) {
+            console.warn("bot_status columns not yet migrated", e);
+          }
           return Response.json({ ok: true });
         }
 
