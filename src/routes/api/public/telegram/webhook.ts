@@ -51,13 +51,10 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
           await supabaseAdmin
             .from("telegram_chats")
             .update({
-              // @ts-expect-error optional columns
               bot_status: newStatus ?? null,
-              // @ts-expect-error optional columns
               bot_is_admin: isAdmin,
-              // @ts-expect-error optional columns
               bot_status_checked_at: new Date().toISOString(),
-            })
+            } as any)
             .eq("chat_id", c.id);
           return Response.json({ ok: true });
         }
