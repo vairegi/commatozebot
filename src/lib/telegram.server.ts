@@ -33,3 +33,23 @@ export function deriveWebhookSecret(): string {
   const { createHash } = require("crypto") as typeof import("crypto");
   return createHash("sha256").update(`telegram-webhook:${key}`).digest("base64url");
 }
+
+let _botIdCache: { id: number; username?: string } | null = null;
+export async function getBotIdentity(): Promise<{ id: number; username?: string }> {
+  if (_botIdCache) return _botIdCache;
+  const me = await telegramCall("getMe");
+  _botIdCache = { id: me.id, username: me.username };
+  return _botIdCache;
+}
+
+export async function getChatMemberStatus(
+  chatId: number,
+  userId: number,
+): Promise<string | null> {
+  try {
+    const m = await telegramCall("getChatMember", { chat_id: chatId, user_id: userId });
+    return m?.status ?? null;
+  } catch {
+    return null;
+  }
+}
