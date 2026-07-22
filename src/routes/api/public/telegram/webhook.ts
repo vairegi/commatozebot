@@ -16,7 +16,8 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const { deriveWebhookSecret, telegramCall } = await import("@/lib/telegram.server");
+        const { deriveWebhookSecret, telegramCall, getBotIdentity, getChatMemberStatus } =
+          await import("@/lib/telegram.server");
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
         const expected = deriveWebhookSecret();
@@ -28,6 +29,37 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
         const update = await request.json();
         if (typeof update.update_id !== "number") {
           return Response.json({ ok: true, ignored: true });
+        }
+
+        // my_chat_member: bot's own membership changed in a chat
+        const myMember = update.my_chat_member;
+        if (myMember?.chat?.id) {
+          const c = myMember.chat;
+          const newStatus: string | undefined = myMember.new_chat_member?.status;
+          const isAdmin = newStatus === "administrator" || newStatus === "creator";
+          await supabaseAdmin.from("telegram_chats").upsert(
+            {
+              chat_id: c.id,
+              title: c.title ?? c.username ?? `Chat ${c.id}`,
+              type: c.type,
+              username: c.username ?? null,
+              last_activity_at: new Date().toISOString(),
+            },
+            { onConflict: "chat_id" },
+          );
+          // Store bot status via a follow-up update (columns may be added later; ignore if missing)
+          await supabaseAdmin
+            .from("telegram_chats")
+            .update({
+              // @ts-expect-error optional columns
+              bot_status: newStatus ?? null,
+              // @ts-expect-error optional columns
+              bot_is_admin: isAdmin,
+              // @ts-expect-error optional columns
+              bot_status_checked_at: new Date().toISOString(),
+            })
+            .eq("chat_id", c.id);
+          return Response.json({ ok: true });
         }
 
         const message = update.message ?? update.edited_message;
@@ -134,6 +166,8 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "/rules — show group rules\n" +
                   "/ping — check I'm alive\n" +
                   "/id — show your Telegram ID\n\n" +
+                  "In private chat:\n" +
+                  "/channels — list groups & channels where you and I are both admin\n\n" +
                   "Admins can manage this group from the web dashboard.",
               });
             } else if (cmd === "/ping") {
@@ -154,6 +188,22 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 chat_id: chat.id,
                 text: c?.rules?.trim() ? `📜 Group Rules:\n\n${c.rules}` : "No rules have been set for this group yet.",
               });
+            } else if (cmd === "/channels") {
+              if (chat.type !== "private") {
+                await telegramCall("sendMessage", {
+                  chat_id: chat.id,
+                  text: "🔒 Use /channels in a private chat with me for privacy.",
+                });
+              } else {
+                await handleChannelsCommand({
+                  fromId: from.id,
+                  dmChatId: chat.id,
+                  supabaseAdmin,
+                  telegramCall,
+                  getBotIdentity,
+                  getChatMemberStatus,
+                });
+              }
             }
           } catch (e) {
             console.error("command failed", e);
@@ -165,3 +215,71 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
     },
   },
 });
+
+async function handleChannelsCommand(args: {
+  fromId: number;
+  dmChatId: number;
+  supabaseAdmin: any;
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  getBotIdentity: () => Promise<{ id: number; username?: string }>;
+  getChatMemberStatus: (chatId: number, userId: number) => Promise<string | null>;
+}) {
+  const { fromId, dmChatId, supabaseAdmin, telegramCall, getBotIdentity, getChatMemberStatus } = args;
+
+  await telegramCall("sendMessage", { chat_id: dmChatId, text: "🔍 Checking chats…" });
+
+  const { data: chats } = await supabaseAdmin
+    .from("telegram_chats")
+    .select("chat_id, title, type, username")
+    .in("type", ["group", "supergroup", "channel"])
+    .order("last_activity_at", { ascending: false })
+    .limit(200);
+
+  if (!chats?.length) {
+    await telegramCall("sendMessage", {
+      chat_id: dmChatId,
+      text: "I'm not in any groups or channels yet.",
+    });
+    return;
+  }
+
+  const bot = await getBotIdentity();
+  const buckets: Record<"channel" | "supergroup" | "group", string[]> = {
+    channel: [],
+    supergroup: [],
+    group: [],
+  };
+
+  await Promise.all(
+    chats.map(async (c: any) => {
+      const [botStatus, userStatus] = await Promise.all([
+        getChatMemberStatus(c.chat_id, bot.id),
+        getChatMemberStatus(c.chat_id, fromId),
+      ]);
+      const botAdmin = botStatus === "administrator" || botStatus === "creator";
+      const userAdmin = userStatus === "administrator" || userStatus === "creator";
+      if (!botAdmin || !userAdmin) return;
+
+      const label = c.title || c.username || `Chat ${c.chat_id}`;
+      const link = c.username ? ` — @${c.username}` : "";
+      const bucket = (c.type as "channel" | "supergroup" | "group") ?? "group";
+      buckets[bucket].push(`• ${label}${link}\n  <code>${c.chat_id}</code>`);
+    }),
+  );
+
+  const sections: string[] = [];
+  if (buckets.channel.length) sections.push(`📢 <b>Channels (${buckets.channel.length})</b>\n${buckets.channel.join("\n")}`);
+  if (buckets.supergroup.length) sections.push(`👥 <b>Supergroups (${buckets.supergroup.length})</b>\n${buckets.supergroup.join("\n")}`);
+  if (buckets.group.length) sections.push(`👥 <b>Groups (${buckets.group.length})</b>\n${buckets.group.join("\n")}`);
+
+  const text = sections.length
+    ? sections.join("\n\n")
+    : "No chats found where both you and I are admin.";
+
+  await telegramCall("sendMessage", {
+    chat_id: dmChatId,
+    text,
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+  });
+}
