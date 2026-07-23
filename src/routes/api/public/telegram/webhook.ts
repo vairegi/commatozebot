@@ -409,45 +409,49 @@ async function handleBotAdminCommands(args: {
   cmd: string;
   fromId: number;
   fromName: string;
-  chat: { id: number; type: string };
   argText: string;
+  replyChatId: number;
   telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
-  getChatMemberStatus: (chatId: number, userId: number) => Promise<string | null>;
   supabaseAdmin: any;
 }) {
-  const { cmd, fromId, fromName, chat, argText, telegramCall, getChatMemberStatus, supabaseAdmin } = args;
+  const { cmd, fromId, fromName, argText, replyChatId, telegramCall, supabaseAdmin } = args;
 
-  const isPrivate = chat.type === "private";
-  const parts = argText.trim().split(/\s+/).slice(1);
+  const send = (text: string, extra: Record<string, unknown> = {}) =>
+    telegramCall("sendMessage", { chat_id: replyChatId, text, ...extra });
 
-  // Resolve target chat: in-group uses current chat; in DM, first arg is chat_id
-  let targetChatId: number;
-  let remaining: string[];
-  if (isPrivate) {
-    const raw = parts[0];
-    const parsed = Number(raw);
-    if (!raw || !Number.isFinite(parsed)) {
-      const usage =
-        cmd === "/listadmins"
-          ? "Usage (DM): /listadmins <chat_id>\nTip: /channels lists chat IDs."
-          : `Usage (DM): ${cmd} <chat_id> <user_id>\nTip: /channels lists chat IDs, /id gives user IDs.`;
-      await telegramCall("sendMessage", { chat_id: chat.id, text: usage });
-      return;
-    }
-    targetChatId = parsed;
-    remaining = parts.slice(1);
-  } else {
-    targetChatId = chat.id;
-    remaining = parts;
-  }
+  // Count existing global bot admins
+  const { count } = await supabaseAdmin
+    .from("telegram_bot_admins")
+    .select("user_id", { count: "exact", head: true });
+  const adminCount = count ?? 0;
 
-  // Caller must be a Telegram admin of the target chat
-  const callerStatus = await getChatMemberStatus(targetChatId, fromId);
-  if (callerStatus !== "administrator" && callerStatus !== "creator") {
-    await telegramCall("sendMessage", {
-      chat_id: chat.id,
-      text: "❌ You must be an admin of that chat to use this command.",
-    });
+  // Is the caller a global bot admin?
+  const { data: callerRow } = await supabaseAdmin
+    .from("telegram_bot_admins")
+    .select("user_id")
+    .eq("user_id", fromId)
+    .maybeSingle();
+  const callerIsBotAdmin = !!callerRow;
+
+  // Bootstrap: if there are no bot admins yet, the first caller becomes the owner.
+  if (adminCount === 0 && (cmd === "/addadmin" || cmd === "/listadmins")) {
+    await supabaseAdmin.from("telegram_bot_admins").upsert(
+      {
+        user_id: fromId,
+        username: null,
+        first_name: fromName,
+        added_by: fromId,
+        added_by_name: fromName,
+      },
+      { onConflict: "user_id" },
+    );
+    await send(
+      `👑 No bot admins existed yet, so you (<code>${fromId}</code>) are now the first bot admin.`,
+      { parse_mode: "HTML" },
+    );
+    // Fall through so /addadmin <id> in the same message still works
+  } else if (!callerIsBotAdmin) {
+    await send("❌ Only bot admins can use this command.");
     return;
   }
 
@@ -455,15 +459,10 @@ async function handleBotAdminCommands(args: {
     const { data: rows } = await supabaseAdmin
       .from("telegram_bot_admins")
       .select("user_id, username, first_name, added_by_name, created_at")
-      .eq("chat_id", targetChatId)
       .order("created_at", { ascending: true });
 
     if (!rows?.length) {
-      await telegramCall("sendMessage", {
-        chat_id: chat.id,
-        text: `No bot admins configured for chat <code>${targetChatId}</code> yet.`,
-        parse_mode: "HTML",
-      });
+      await send("No bot admins configured yet. Use /addadmin <user_id> to add one.");
       return;
     }
 
@@ -472,65 +471,36 @@ async function handleBotAdminCommands(args: {
       const handle = r.username ? ` (@${r.username})` : "";
       return `• ${label}${handle} — <code>${r.user_id}</code>`;
     });
-    await telegramCall("sendMessage", {
-      chat_id: chat.id,
-      text: `👮 Bot admins for <code>${targetChatId}</code> (${rows.length}):\n\n${lines.join("\n")}`,
-      parse_mode: "HTML",
-    });
+    await send(`👮 Bot admins (${rows.length}):\n\n${lines.join("\n")}`, { parse_mode: "HTML" });
     return;
   }
 
-  // /addadmin and /radmin need a user_id arg
-  const rawArg = remaining[0];
+  // /addadmin and /radmin require a user_id argument
+  const parts = argText.trim().split(/\s+/).slice(1);
+  const rawArg = parts[0];
   const targetId = Number(rawArg);
   if (!rawArg || !Number.isFinite(targetId)) {
-    const usage = isPrivate
-      ? `Usage (DM): ${cmd} <chat_id> <user_id>`
-      : `Usage: ${cmd} <user_id>\nTip: users can send /id to get their Telegram user ID.`;
-    await telegramCall("sendMessage", {
-      chat_id: chat.id,
-      text: usage,
-    });
+    await send(`Usage: ${cmd} <user_id>\nTip: users can send /id to get their Telegram user ID.`);
     return;
   }
 
   if (cmd === "/addadmin") {
-    let username: string | null = null;
-    let firstName: string | null = null;
-    try {
-      const m = await telegramCall("getChatMember", { chat_id: targetChatId, user_id: targetId });
-      username = m?.user?.username ?? null;
-      firstName = m?.user?.first_name ?? null;
-    } catch {
-      /* user may not be in chat yet — still allow */
-    }
-
     const { error } = await supabaseAdmin.from("telegram_bot_admins").upsert(
       {
-        chat_id: targetChatId,
         user_id: targetId,
-        username,
-        first_name: firstName,
+        username: null,
+        first_name: null,
         added_by: fromId,
         added_by_name: fromName,
       },
-      { onConflict: "chat_id,user_id" },
+      { onConflict: "user_id" },
     );
 
     if (error) {
-      await telegramCall("sendMessage", {
-        chat_id: chat.id,
-        text: `❌ Failed to add bot admin: ${error.message}`,
-      });
+      await send(`❌ Failed to add bot admin: ${error.message}`);
       return;
     }
-
-    const label = firstName || username || `user ${targetId}`;
-    await telegramCall("sendMessage", {
-      chat_id: chat.id,
-      text: `✅ Added ${label} as bot admin for <code>${targetChatId}</code>.`,
-      parse_mode: "HTML",
-    });
+    await send(`✅ Added <code>${targetId}</code> as a bot admin.`, { parse_mode: "HTML" });
     return;
   }
 
@@ -538,38 +508,24 @@ async function handleBotAdminCommands(args: {
     const { data: existing } = await supabaseAdmin
       .from("telegram_bot_admins")
       .select("first_name, username")
-      .eq("chat_id", targetChatId)
       .eq("user_id", targetId)
       .maybeSingle();
 
     if (!existing) {
-      await telegramCall("sendMessage", {
-        chat_id: chat.id,
-        text: `ℹ️ <code>${targetId}</code> is not a bot admin here.`,
-        parse_mode: "HTML",
-      });
+      await send(`ℹ️ <code>${targetId}</code> is not a bot admin.`, { parse_mode: "HTML" });
       return;
     }
 
     const { error } = await supabaseAdmin
       .from("telegram_bot_admins")
       .delete()
-      .eq("chat_id", targetChatId)
       .eq("user_id", targetId);
 
     if (error) {
-      await telegramCall("sendMessage", {
-        chat_id: chat.id,
-        text: `❌ Failed to remove bot admin: ${error.message}`,
-      });
+      await send(`❌ Failed to remove bot admin: ${error.message}`);
       return;
     }
-
     const label = existing.first_name || existing.username || `user ${targetId}`;
-    await telegramCall("sendMessage", {
-      chat_id: chat.id,
-      text: `🗑️ Removed ${label} from bot admins of <code>${targetChatId}</code>.`,
-      parse_mode: "HTML",
-    });
+    await send(`🗑️ Removed ${label} (<code>${targetId}</code>) from bot admins.`, { parse_mode: "HTML" });
   }
 }
