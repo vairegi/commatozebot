@@ -262,9 +262,30 @@ async function handleChannelsCommand(args: {
       if (!botAdmin || !userAdmin) return;
 
       const label = c.title || c.username || `Chat ${c.chat_id}`;
-      const link = c.username ? ` — @${c.username}` : "";
+      let linkLine = "";
+      if (c.username) {
+        linkLine = ` — @${c.username}`;
+      } else {
+        // Private chat: try to get an invite link (bot needs can_invite_users)
+        try {
+          const info = await telegramCall("getChat", { chat_id: c.chat_id });
+          let invite: string | undefined = info?.invite_link;
+          if (!invite) {
+            try {
+              const created = await telegramCall("exportChatInviteLink", { chat_id: c.chat_id });
+              if (typeof created === "string") invite = created;
+            } catch (e) {
+              console.warn("exportChatInviteLink failed", c.chat_id, e);
+            }
+          }
+          if (invite) linkLine = ` — <a href="${invite}">invite link</a>`;
+          else linkLine = " — 🔒 private (no invite permission)";
+        } catch (e) {
+          console.warn("getChat failed", c.chat_id, e);
+        }
+      }
       const bucket = (c.type as "channel" | "supergroup" | "group") ?? "group";
-      buckets[bucket].push(`• ${label}${link}\n  <code>${c.chat_id}</code>`);
+      buckets[bucket].push(`• ${label}${linkLine}\n  <code>${c.chat_id}</code>`);
     }),
   );
 
