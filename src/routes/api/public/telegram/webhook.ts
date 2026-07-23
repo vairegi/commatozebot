@@ -169,6 +169,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "/id — show your Telegram ID\n\n" +
                   "In private chat:\n" +
                   "/channels — list groups & channels where you and I are both admin\n\n" +
+                  "/leave [chat_id] — make me leave a chat (admins only)\n\n" +
                   "Admins can manage this group from the web dashboard.",
               });
             } else if (cmd === "/ping") {
