@@ -75,30 +75,24 @@ export type Database = {
         Row: {
           added_by: number | null
           added_by_name: string | null
-          chat_id: number
           created_at: string
           first_name: string | null
-          id: string
           user_id: number
           username: string | null
         }
         Insert: {
           added_by?: number | null
           added_by_name?: string | null
-          chat_id: number
           created_at?: string
           first_name?: string | null
-          id?: string
           user_id: number
           username?: string | null
         }
         Update: {
           added_by?: number | null
           added_by_name?: string | null
-          chat_id?: number
           created_at?: string
           first_name?: string | null
-          id?: string
           user_id?: number
           username?: string | null
         }
