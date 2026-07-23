@@ -216,6 +216,17 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 getChatMemberStatus,
                 supabaseAdmin,
               });
+            } else if (cmd === "/addadmin" || cmd === "/radmin" || cmd === "/listadmins") {
+              await handleBotAdminCommands({
+                cmd,
+                fromId: from.id,
+                fromName: from.first_name || from.username || `user ${from.id}`,
+                chat,
+                argText: text,
+                telegramCall,
+                getChatMemberStatus,
+                supabaseAdmin,
+              });
             }
           } catch (e) {
             console.error("command failed", e);
