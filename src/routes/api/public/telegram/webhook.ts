@@ -402,3 +402,151 @@ async function handleLeaveCommand(args: {
     });
   }
 }
+async function handleBotAdminCommands(args: {
+  cmd: string;
+  fromId: number;
+  fromName: string;
+  chat: { id: number; type: string };
+  argText: string;
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  getChatMemberStatus: (chatId: number, userId: number) => Promise<string | null>;
+  supabaseAdmin: any;
+}) {
+  const { cmd, fromId, fromName, chat, argText, telegramCall, getChatMemberStatus, supabaseAdmin } = args;
+
+  if (chat.type === "private") {
+    await telegramCall("sendMessage", {
+      chat_id: chat.id,
+      text: "❌ Run this command inside the group or channel you want to manage.",
+    });
+    return;
+  }
+
+  // Caller must be a Telegram chat admin (creator or administrator)
+  const callerStatus = await getChatMemberStatus(chat.id, fromId);
+  if (callerStatus !== "administrator" && callerStatus !== "creator") {
+    await telegramCall("sendMessage", {
+      chat_id: chat.id,
+      text: "❌ Only chat admins can use this command.",
+    });
+    return;
+  }
+
+  if (cmd === "/listadmins") {
+    const { data: rows } = await supabaseAdmin
+      .from("telegram_bot_admins")
+      .select("user_id, username, first_name, added_by_name, created_at")
+      .eq("chat_id", chat.id)
+      .order("created_at", { ascending: true });
+
+    if (!rows?.length) {
+      await telegramCall("sendMessage", {
+        chat_id: chat.id,
+        text: "No bot admins configured for this chat yet.\nUse /addadmin <user_id> to add one.",
+      });
+      return;
+    }
+
+    const lines = rows.map((r: any) => {
+      const label = r.first_name || r.username || `user ${r.user_id}`;
+      const handle = r.username ? ` (@${r.username})` : "";
+      return `• ${label}${handle} — <code>${r.user_id}</code>`;
+    });
+    await telegramCall("sendMessage", {
+      chat_id: chat.id,
+      text: `👮 Bot admins (${rows.length}):\n\n${lines.join("\n")}`,
+      parse_mode: "HTML",
+    });
+    return;
+  }
+
+  // /addadmin and /radmin need a user_id arg
+  const parts = argText.trim().split(/\s+/);
+  const rawArg = parts[1];
+  const targetId = Number(rawArg);
+  if (!rawArg || !Number.isFinite(targetId)) {
+    await telegramCall("sendMessage", {
+      chat_id: chat.id,
+      text: `Usage: ${cmd} <user_id>\nTip: users can send /id to get their Telegram user ID.`,
+    });
+    return;
+  }
+
+  if (cmd === "/addadmin") {
+    // Try to fetch profile info from chat
+    let username: string | null = null;
+    let firstName: string | null = null;
+    try {
+      const m = await telegramCall("getChatMember", { chat_id: chat.id, user_id: targetId });
+      username = m?.user?.username ?? null;
+      firstName = m?.user?.first_name ?? null;
+    } catch {
+      /* user may not be in chat yet — still allow */
+    }
+
+    const { error } = await supabaseAdmin.from("telegram_bot_admins").upsert(
+      {
+        chat_id: chat.id,
+        user_id: targetId,
+        username,
+        first_name: firstName,
+        added_by: fromId,
+        added_by_name: fromName,
+      },
+      { onConflict: "chat_id,user_id" },
+    );
+
+    if (error) {
+      await telegramCall("sendMessage", {
+        chat_id: chat.id,
+        text: `❌ Failed to add bot admin: ${error.message}`,
+      });
+      return;
+    }
+
+    const label = firstName || username || `user ${targetId}`;
+    await telegramCall("sendMessage", {
+      chat_id: chat.id,
+      text: `✅ Added ${label} as bot admin.`,
+    });
+    return;
+  }
+
+  if (cmd === "/radmin") {
+    const { data: existing } = await supabaseAdmin
+      .from("telegram_bot_admins")
+      .select("first_name, username")
+      .eq("chat_id", chat.id)
+      .eq("user_id", targetId)
+      .maybeSingle();
+
+    if (!existing) {
+      await telegramCall("sendMessage", {
+        chat_id: chat.id,
+        text: `ℹ️ <code>${targetId}</code> is not a bot admin here.`,
+        parse_mode: "HTML",
+      });
+      return;
+    }
+
+    const { error } = await supabaseAdmin
+      .from("telegram_bot_admins")
+      .delete()
+      .eq("chat_id", chat.id)
+      .eq("user_id", targetId);
+
+    if (error) {
+      await telegramCall("sendMessage", {
+        chat_id: chat.id,
+        text: `❌ Failed to remove bot admin: ${error.message}`,
+      });
+      return;
+    }
+
+    const label = existing.first_name || existing.username || `user ${targetId}`;
+    await telegramCall("sendMessage", {
+      chat_id: chat.id,
+      text: `🗑️ Removed ${label} from bot admins.`,
+    });
+  }
+}
