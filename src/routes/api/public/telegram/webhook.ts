@@ -225,10 +225,9 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 cmd,
                 fromId: from.id,
                 fromName: from.first_name || from.username || `user ${from.id}`,
-                chat,
                 argText: text,
+                replyChatId: chat.id,
                 telegramCall,
-                getChatMemberStatus,
                 supabaseAdmin,
               });
             }
