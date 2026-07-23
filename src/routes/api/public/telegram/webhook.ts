@@ -170,10 +170,11 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "In private chat:\n" +
                   "/channels — list groups & channels where you and I are both admin\n\n" +
                   "/leave [chat_id] — make me leave a chat (admins only)\n\n" +
-                  "Bot admin list (chat admins only, run in the group/channel):\n" +
-                  "/addadmin <user_id> — add a bot admin\n" +
-                  "/radmin <user_id> — remove a bot admin\n" +
-                  "/listadmins — list bot admins\n\n" +
+                  "Bot admins (people allowed to use this bot):\n" +
+                  "/addadmin <user_id> — grant bot access\n" +
+                  "/radmin <user_id> — revoke bot access\n" +
+                  "/listadmins — list bot admins\n" +
+                  "(First caller becomes the first bot admin automatically.)\n\n" +
                   "Admins can manage this group from the web dashboard.",
               });
             } else if (cmd === "/ping") {
