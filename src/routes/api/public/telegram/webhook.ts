@@ -445,7 +445,6 @@ async function handleBotAdminCommands(args: {
   // Caller must be a Telegram admin of the target chat
   const callerStatus = await getChatMemberStatus(targetChatId, fromId);
   if (callerStatus !== "administrator" && callerStatus !== "creator") {
-    await telegramCall({} as any, {} as any).catch(() => {});
     await telegramCall("sendMessage", {
       chat_id: chat.id,
       text: "❌ You must be an admin of that chat to use this command.",
