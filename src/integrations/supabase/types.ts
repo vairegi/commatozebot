@@ -71,6 +71,39 @@ export type Database = {
         }
         Relationships: []
       }
+      telegram_bot_admins: {
+        Row: {
+          added_by: number | null
+          added_by_name: string | null
+          chat_id: number
+          created_at: string
+          first_name: string | null
+          id: string
+          user_id: number
+          username: string | null
+        }
+        Insert: {
+          added_by?: number | null
+          added_by_name?: string | null
+          chat_id: number
+          created_at?: string
+          first_name?: string | null
+          id?: string
+          user_id: number
+          username?: string | null
+        }
+        Update: {
+          added_by?: number | null
+          added_by_name?: string | null
+          chat_id?: number
+          created_at?: string
+          first_name?: string | null
+          id?: string
+          user_id?: number
+          username?: string | null
+        }
+        Relationships: []
+      }
       telegram_chats: {
         Row: {
           chat_id: number
