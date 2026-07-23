@@ -205,6 +205,16 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   getChatMemberStatus,
                 });
               }
+            } else if (cmd === "/leave") {
+              await handleLeaveCommand({
+                fromId: from.id,
+                replyChatId: chat.id,
+                currentChat: chat,
+                argText: text,
+                telegramCall,
+                getChatMemberStatus,
+                supabaseAdmin,
+              });
             }
           } catch (e) {
             console.error("command failed", e);
@@ -304,4 +314,79 @@ async function handleChannelsCommand(args: {
     parse_mode: "HTML",
     disable_web_page_preview: true,
   });
+}
+
+async function handleLeaveCommand(args: {
+  fromId: number;
+  replyChatId: number;
+  currentChat: { id: number; type: string };
+  argText: string;
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  getChatMemberStatus: (chatId: number, userId: number) => Promise<string | null>;
+  supabaseAdmin: any;
+}) {
+  const { fromId, replyChatId, currentChat, argText, telegramCall, getChatMemberStatus, supabaseAdmin } = args;
+
+  const parts = argText.trim().split(/\s+/);
+  const rawArg = parts[1];
+
+  let targetChatId: number | null = null;
+  if (rawArg) {
+    const parsed = Number(rawArg);
+    if (!Number.isFinite(parsed)) {
+      await telegramCall("sendMessage", {
+        chat_id: replyChatId,
+        text: "Usage: /leave <chat_id>\nExample: /leave -1001234567890",
+      });
+      return;
+    }
+    targetChatId = parsed;
+  } else if (currentChat.type !== "private") {
+    targetChatId = currentChat.id;
+  } else {
+    await telegramCall("sendMessage", {
+      chat_id: replyChatId,
+      text: "Usage: /leave <chat_id>\nRun /channels to see chat IDs, or use /leave inside the group/channel itself.",
+    });
+    return;
+  }
+
+  // Verify caller is admin in the target chat
+  const userStatus = await getChatMemberStatus(targetChatId, fromId);
+  if (userStatus !== "administrator" && userStatus !== "creator") {
+    await telegramCall("sendMessage", {
+      chat_id: replyChatId,
+      text: "❌ You must be an admin of that chat to make me leave.",
+    });
+    return;
+  }
+
+  try {
+    await telegramCall("leaveChat", { chat_id: targetChatId });
+    try {
+      await supabaseAdmin
+        .from("telegram_chats")
+        .update({
+          bot_status: "left",
+          bot_is_admin: false,
+          bot_status_checked_at: new Date().toISOString(),
+        } as any)
+        .eq("chat_id", targetChatId);
+    } catch (e) {
+      console.warn("failed to update bot_status after leave", e);
+    }
+    if (replyChatId !== targetChatId) {
+      await telegramCall("sendMessage", {
+        chat_id: replyChatId,
+        text: `👋 Left chat <code>${targetChatId}</code>.`,
+        parse_mode: "HTML",
+      });
+    }
+  } catch (e: any) {
+    await telegramCall("sendMessage", {
+      chat_id: replyChatId,
+      text: `❌ Failed to leave chat <code>${targetChatId}</code>: ${e?.message ?? "unknown error"}`,
+      parse_mode: "HTML",
+    });
+  }
 }
