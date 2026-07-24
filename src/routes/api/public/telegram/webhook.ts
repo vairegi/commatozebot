@@ -202,7 +202,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "/ping — check I'm alive\n" +
                   "/id — show your Telegram ID\n\n" +
                   "In private chat:\n" +
-                  "/channels — list groups & channels where you and I are both admin\n\n" +
+                  "/channels — list groups & channels where I am admin\n\n" +
                   "/leave [chat_id] — make me leave a chat (admins only)\n\n" +
                   "📣 Broadcast (bot admins, DM only):\n" +
                   "/post — start a broadcast wizard (send/forward the post → pick channels → timing → auto-delete)\n" +
@@ -241,7 +241,6 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 });
               } else {
                 await handleChannelsCommand({
-                  fromId: from.id,
                   dmChatId: chat.id,
                   supabaseAdmin,
                   telegramCall,
@@ -282,14 +281,13 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
 });
 
 async function handleChannelsCommand(args: {
-  fromId: number;
   dmChatId: number;
   supabaseAdmin: any;
   telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
   getBotIdentity: () => Promise<{ id: number; username?: string }>;
   getChatMemberStatus: (chatId: number, userId: number) => Promise<string | null>;
 }) {
-  const { fromId, dmChatId, supabaseAdmin, telegramCall, getBotIdentity, getChatMemberStatus } = args;
+  const { dmChatId, supabaseAdmin, telegramCall, getBotIdentity, getChatMemberStatus } = args;
 
   await telegramCall("sendMessage", { chat_id: dmChatId, text: "🔍 Checking chats…" });
 
@@ -317,13 +315,9 @@ async function handleChannelsCommand(args: {
 
   await Promise.all(
     chats.map(async (c: any) => {
-      const [botStatus, userStatus] = await Promise.all([
-        getChatMemberStatus(c.chat_id, bot.id),
-        getChatMemberStatus(c.chat_id, fromId),
-      ]);
+      const botStatus = await getChatMemberStatus(c.chat_id, bot.id);
       const botAdmin = botStatus === "administrator" || botStatus === "creator";
-      const userAdmin = userStatus === "administrator" || userStatus === "creator";
-      if (!botAdmin || !userAdmin) return;
+      if (!botAdmin) return;
 
       const label = c.title || c.username || `Chat ${c.chat_id}`;
       let linkLine = "";
@@ -360,7 +354,7 @@ async function handleChannelsCommand(args: {
 
   const text = sections.length
     ? sections.join("\n\n")
-    : "No chats found where both you and I are admin.";
+    : "No chats found where I am admin.";
 
   await telegramCall("sendMessage", {
     chat_id: dmChatId,
