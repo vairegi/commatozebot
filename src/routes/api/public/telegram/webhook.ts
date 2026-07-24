@@ -443,11 +443,12 @@ async function handleBotAdminCommands(args: {
         first_name: fromName,
         added_by: fromId,
         added_by_name: fromName,
+        role: "super_admin",
       },
       { onConflict: "user_id" },
     );
     await send(
-      `👑 No bot admins existed yet, so you (<code>${fromId}</code>) are now the first bot admin.`,
+      `👑 No bot admins existed yet, so you (<code>${fromId}</code>) are now the owner (super admin).`,
       { parse_mode: "HTML" },
     );
     // Fall through so /addadmin <id> in the same message still works
@@ -456,10 +457,19 @@ async function handleBotAdminCommands(args: {
     return;
   }
 
+  // Fetch caller's role for permission checks below
+  const { data: callerFull } = await supabaseAdmin
+    .from("telegram_bot_admins")
+    .select("role")
+    .eq("user_id", fromId)
+    .maybeSingle();
+  const callerIsSuper = callerFull?.role === "super_admin";
+
   if (cmd === "/listadmins") {
     const { data: rows } = await supabaseAdmin
       .from("telegram_bot_admins")
-      .select("user_id, username, first_name, added_by_name, created_at")
+      .select("user_id, username, first_name, added_by_name, created_at, role")
+      .order("role", { ascending: true })
       .order("created_at", { ascending: true });
 
     if (!rows?.length) {
@@ -470,9 +480,13 @@ async function handleBotAdminCommands(args: {
     const lines = rows.map((r: any) => {
       const label = r.first_name || r.username || `user ${r.user_id}`;
       const handle = r.username ? ` (@${r.username})` : "";
-      return `• ${label}${handle} — <code>${r.user_id}</code>`;
+      const crown = r.role === "super_admin" ? "👑 " : "• ";
+      return `${crown}${label}${handle} — <code>${r.user_id}</code>`;
     });
-    await send(`👮 Bot admins (${rows.length}):\n\n${lines.join("\n")}`, { parse_mode: "HTML" });
+    await send(
+      `👮 Bot admins (${rows.length}) — 👑 = super admin:\n\n${lines.join("\n")}`,
+      { parse_mode: "HTML" },
+    );
     return;
   }
 
@@ -481,11 +495,20 @@ async function handleBotAdminCommands(args: {
   const rawArg = parts[0];
   const targetId = Number(rawArg);
   if (!rawArg || !Number.isFinite(targetId)) {
-    await send(`Usage: ${cmd} <user_id>\nTip: users can send /id to get their Telegram user ID.`);
+    const usage = cmd === "/addadmin"
+      ? "Usage: /addadmin <user_id> [super]\nAdd 'super' to grant super admin (super admins only)."
+      : `Usage: ${cmd} <user_id>`;
+    await send(`${usage}\nTip: users can send /id to get their Telegram user ID.`);
     return;
   }
 
   if (cmd === "/addadmin") {
+    const wantsSuper = (parts[1] ?? "").toLowerCase() === "super";
+    if (wantsSuper && !callerIsSuper) {
+      await send("❌ Only super admins 👑 can add other super admins.");
+      return;
+    }
+    const role = wantsSuper ? "super_admin" : "admin";
     const { error } = await supabaseAdmin.from("telegram_bot_admins").upsert(
       {
         user_id: targetId,
@@ -493,6 +516,7 @@ async function handleBotAdminCommands(args: {
         first_name: null,
         added_by: fromId,
         added_by_name: fromName,
+        role,
       },
       { onConflict: "user_id" },
     );
@@ -501,20 +525,37 @@ async function handleBotAdminCommands(args: {
       await send(`❌ Failed to add bot admin: ${error.message}`);
       return;
     }
-    await send(`✅ Added <code>${targetId}</code> as a bot admin.`, { parse_mode: "HTML" });
+    const badge = wantsSuper ? "super admin 👑" : "admin";
+    await send(`✅ Added <code>${targetId}</code> as a ${badge}.`, { parse_mode: "HTML" });
     return;
   }
 
   if (cmd === "/radmin") {
     const { data: existing } = await supabaseAdmin
       .from("telegram_bot_admins")
-      .select("first_name, username")
+      .select("first_name, username, role")
       .eq("user_id", targetId)
       .maybeSingle();
 
     if (!existing) {
       await send(`ℹ️ <code>${targetId}</code> is not a bot admin.`, { parse_mode: "HTML" });
       return;
+    }
+
+    if (existing.role === "super_admin" && !callerIsSuper) {
+      await send("❌ Only super admins 👑 can remove other super admins.");
+      return;
+    }
+
+    if (existing.role === "super_admin") {
+      const { count: superCount } = await supabaseAdmin
+        .from("telegram_bot_admins")
+        .select("user_id", { count: "exact", head: true })
+        .eq("role", "super_admin");
+      if ((superCount ?? 0) <= 1) {
+        await send("❌ Can't remove the last super admin 👑.");
+        return;
+      }
     }
 
     const { error } = await supabaseAdmin
