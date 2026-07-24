@@ -509,6 +509,28 @@ async function handleBotAdminCommands(args: {
       return;
     }
 
+    // Backfill missing names via getChat (best effort — requires the user to have DMed the bot).
+    await Promise.all(
+      rows.map(async (r: any) => {
+        if (r.first_name || r.username) return;
+        try {
+          const info = await telegramCall("getChat", { chat_id: r.user_id });
+          const first_name = info?.first_name ?? null;
+          const username = info?.username ?? null;
+          if (first_name || username) {
+            r.first_name = first_name;
+            r.username = username;
+            await supabaseAdmin
+              .from("telegram_bot_admins")
+              .update({ first_name, username })
+              .eq("user_id", r.user_id);
+          }
+        } catch (e) {
+          console.warn("getChat backfill failed", r.user_id, e);
+        }
+      }),
+    );
+
     const lines = rows.map((r: any) => {
       const label = r.first_name || r.username || `user ${r.user_id}`;
       const handle = r.username ? ` (@${r.username})` : "";
@@ -541,11 +563,21 @@ async function handleBotAdminCommands(args: {
       return;
     }
     const role = wantsSuper ? "super_admin" : "admin";
+    // Try to fetch the target's name/username via getChat (works if they've DMed the bot).
+    let targetFirstName: string | null = null;
+    let targetUsername: string | null = null;
+    try {
+      const info = await telegramCall("getChat", { chat_id: targetId });
+      targetFirstName = info?.first_name ?? null;
+      targetUsername = info?.username ?? null;
+    } catch (e) {
+      console.warn("getChat on addadmin target failed", targetId, e);
+    }
     const { error } = await supabaseAdmin.from("telegram_bot_admins").upsert(
       {
         user_id: targetId,
-        username: null,
-        first_name: null,
+        username: targetUsername,
+        first_name: targetFirstName,
         added_by: fromId,
         added_by_name: fromName,
         role,
@@ -557,8 +589,9 @@ async function handleBotAdminCommands(args: {
       await send(`❌ Failed to add bot admin: ${error.message}`);
       return;
     }
+    const label = targetFirstName || targetUsername || `user ${targetId}`;
     const badge = wantsSuper ? "super admin 👑" : "admin";
-    await send(`✅ Added <code>${targetId}</code> as a ${badge}.`, { parse_mode: "HTML" });
+    await send(`✅ Added ${label} (<code>${targetId}</code>) as a ${badge}.`, { parse_mode: "HTML" });
     return;
   }
 
