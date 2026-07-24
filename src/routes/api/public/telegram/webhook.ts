@@ -19,6 +19,8 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
         const { deriveWebhookSecret, telegramCall, getBotIdentity, getChatMemberStatus } =
           await import("@/lib/telegram.server");
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        const { handleBroadcastCommand, handleBroadcastMessage, handleBroadcastCallback } =
+          await import("@/lib/broadcast-wizard.server");
 
         const expected = deriveWebhookSecret();
         const actual = request.headers.get("X-Telegram-Bot-Api-Secret-Token") ?? "";
@@ -29,6 +31,16 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
         const update = await request.json();
         if (typeof update.update_id !== "number") {
           return Response.json({ ok: true, ignored: true });
+        }
+
+        // Callback queries (inline button taps) — route broadcast wizard first.
+        if (update.callback_query) {
+          try {
+            await handleBroadcastCallback(update.callback_query);
+          } catch (e) {
+            console.error("callback_query failed", e);
+          }
+          return Response.json({ ok: true });
         }
 
         // my_chat_member: bot's own membership changed in a chat
@@ -159,6 +171,28 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
           const cmd = text.trim().split(/\s+/)[0]?.split("@")[0]?.toLowerCase();
 
           try {
+            // Broadcast wizard: consume forwarded/media messages or custom-input replies first.
+            const consumed = await handleBroadcastMessage({
+              fromId: from.id,
+              fromName: from.first_name || from.username || `user ${from.id}`,
+              chatId: chat.id,
+              chatType: chat.type,
+              message,
+            });
+            if (consumed) return Response.json({ ok: true });
+
+            // Broadcast commands
+            if (cmd === "/post" || cmd === "/broadcasts" || cmd === "/cancel") {
+              const handled = await handleBroadcastCommand({
+                cmd,
+                fromId: from.id,
+                fromName: from.first_name || from.username || `user ${from.id}`,
+                chatId: chat.id,
+                chatType: chat.type,
+              });
+              if (handled) return Response.json({ ok: true });
+            }
+
             if (cmd === "/start" || cmd === "/help") {
               await telegramCall("sendMessage", {
                 chat_id: chat.id,
@@ -170,6 +204,10 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "In private chat:\n" +
                   "/channels — list groups & channels where you and I are both admin\n\n" +
                   "/leave [chat_id] — make me leave a chat (admins only)\n\n" +
+                  "📣 Broadcast (bot admins, DM only):\n" +
+                  "/post — start a broadcast wizard (send/forward the post → pick channels → timing → auto-delete)\n" +
+                  "/broadcasts — recent broadcasts, cancel pending, cancel auto-delete\n" +
+                  "/cancel — abort current wizard\n\n" +
                   "Bot admins (people allowed to use this bot):\n" +
                   "/addadmin <user_id> [super] — grant bot access (super = super admin, super admins only)\n" +
                   "/radmin <user_id> — revoke bot access (super admins only for other super admins)\n" +
