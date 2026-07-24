@@ -14,6 +14,143 @@ export type Database = {
   }
   public: {
     Tables: {
+      broadcast_drafts: {
+        Row: {
+          auto_delete_seconds: number | null
+          awaiting_custom: string | null
+          editing_broadcast_id: string | null
+          preview_text: string | null
+          scheduled_at: string | null
+          selected_chat_ids: number[]
+          source_chat_id: number | null
+          source_message_id: number | null
+          step: string
+          updated_at: string
+          user_id: number
+        }
+        Insert: {
+          auto_delete_seconds?: number | null
+          awaiting_custom?: string | null
+          editing_broadcast_id?: string | null
+          preview_text?: string | null
+          scheduled_at?: string | null
+          selected_chat_ids?: number[]
+          source_chat_id?: number | null
+          source_message_id?: number | null
+          step?: string
+          updated_at?: string
+          user_id: number
+        }
+        Update: {
+          auto_delete_seconds?: number | null
+          awaiting_custom?: string | null
+          editing_broadcast_id?: string | null
+          preview_text?: string | null
+          scheduled_at?: string | null
+          selected_chat_ids?: number[]
+          source_chat_id?: number | null
+          source_message_id?: number | null
+          step?: string
+          updated_at?: string
+          user_id?: number
+        }
+        Relationships: []
+      }
+      broadcast_targets: {
+        Row: {
+          broadcast_id: string
+          chat_id: number
+          chat_title: string | null
+          created_at: string
+          delete_at: string | null
+          deleted_at: string | null
+          error: string | null
+          id: string
+          sent_message_id: number | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          broadcast_id: string
+          chat_id: number
+          chat_title?: string | null
+          created_at?: string
+          delete_at?: string | null
+          deleted_at?: string | null
+          error?: string | null
+          id?: string
+          sent_message_id?: number | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          broadcast_id?: string
+          chat_id?: number
+          chat_title?: string | null
+          created_at?: string
+          delete_at?: string | null
+          deleted_at?: string | null
+          error?: string | null
+          id?: string
+          sent_message_id?: number | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broadcast_targets_broadcast_id_fkey"
+            columns: ["broadcast_id"]
+            isOneToOne: false
+            referencedRelation: "broadcasts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      broadcasts: {
+        Row: {
+          auto_delete_seconds: number | null
+          created_at: string
+          created_by: number
+          created_by_name: string | null
+          id: string
+          preview_text: string | null
+          scheduled_at: string | null
+          sent_at: string | null
+          source_chat_id: number
+          source_message_id: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          auto_delete_seconds?: number | null
+          created_at?: string
+          created_by: number
+          created_by_name?: string | null
+          id?: string
+          preview_text?: string | null
+          scheduled_at?: string | null
+          sent_at?: string | null
+          source_chat_id: number
+          source_message_id: number
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          auto_delete_seconds?: number | null
+          created_at?: string
+          created_by?: number
+          created_by_name?: string | null
+          id?: string
+          preview_text?: string | null
+          scheduled_at?: string | null
+          sent_at?: string | null
+          source_chat_id?: number
+          source_message_id?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       moderation_actions: {
         Row: {
           action: string
