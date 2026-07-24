@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedChatsChatIdRouteImport } from './routes/_authenticated/chats.$chatId'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram/webhook'
+import { Route as ApiPublicHooksBroadcastTickRouteImport } from './routes/api/public/hooks/broadcast-tick'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -47,12 +48,19 @@ const ApiPublicTelegramWebhookRoute =
     path: '/api/public/telegram/webhook',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksBroadcastTickRoute =
+  ApiPublicHooksBroadcastTickRouteImport.update({
+    id: '/api/public/hooks/broadcast-tick',
+    path: '/api/public/hooks/broadcast-tick',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/chats/$chatId': typeof AuthenticatedChatsChatIdRoute
+  '/api/public/hooks/broadcast-tick': typeof ApiPublicHooksBroadcastTickRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
 }
 export interface FileRoutesByTo {
@@ -60,6 +68,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/chats/$chatId': typeof AuthenticatedChatsChatIdRoute
+  '/api/public/hooks/broadcast-tick': typeof ApiPublicHooksBroadcastTickRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
 }
 export interface FileRoutesById {
@@ -69,6 +78,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/chats/$chatId': typeof AuthenticatedChatsChatIdRoute
+  '/api/public/hooks/broadcast-tick': typeof ApiPublicHooksBroadcastTickRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
 }
 export interface FileRouteTypes {
@@ -78,6 +88,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/dashboard'
     | '/chats/$chatId'
+    | '/api/public/hooks/broadcast-tick'
     | '/api/public/telegram/webhook'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -85,6 +96,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/dashboard'
     | '/chats/$chatId'
+    | '/api/public/hooks/broadcast-tick'
     | '/api/public/telegram/webhook'
   id:
     | '__root__'
@@ -93,6 +105,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/dashboard'
     | '/_authenticated/chats/$chatId'
+    | '/api/public/hooks/broadcast-tick'
     | '/api/public/telegram/webhook'
   fileRoutesById: FileRoutesById
 }
@@ -100,6 +113,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiPublicHooksBroadcastTickRoute: typeof ApiPublicHooksBroadcastTickRoute
   ApiPublicTelegramWebhookRoute: typeof ApiPublicTelegramWebhookRoute
 }
 
@@ -147,6 +161,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicTelegramWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/broadcast-tick': {
+      id: '/api/public/hooks/broadcast-tick'
+      path: '/api/public/hooks/broadcast-tick'
+      fullPath: '/api/public/hooks/broadcast-tick'
+      preLoaderRoute: typeof ApiPublicHooksBroadcastTickRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -167,18 +188,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiPublicHooksBroadcastTickRoute: ApiPublicHooksBroadcastTickRoute,
   ApiPublicTelegramWebhookRoute: ApiPublicTelegramWebhookRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
