@@ -411,14 +411,22 @@ async function handleLeaveCommand(args: {
     return;
   }
 
-  // Verify caller is admin in the target chat
-  const userStatus = await getChatMemberStatus(targetChatId, fromId);
-  if (userStatus !== "administrator" && userStatus !== "creator") {
-    await telegramCall("sendMessage", {
-      chat_id: replyChatId,
-      text: "❌ You must be an admin of that chat to make me leave.",
-    });
-    return;
+  // Allow if caller is a global bot admin OR an admin/creator of the target chat
+  const { data: botAdminRow } = await supabaseAdmin
+    .from("telegram_bot_admins")
+    .select("user_id")
+    .eq("user_id", fromId)
+    .maybeSingle();
+  const isBotAdmin = !!botAdminRow;
+  if (!isBotAdmin) {
+    const userStatus = await getChatMemberStatus(targetChatId, fromId);
+    if (userStatus !== "administrator" && userStatus !== "creator") {
+      await telegramCall("sendMessage", {
+        chat_id: replyChatId,
+        text: "❌ You must be a bot admin or an admin of that chat to make me leave.",
+      });
+      return;
+    }
   }
 
   try {
