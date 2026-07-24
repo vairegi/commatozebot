@@ -167,6 +167,18 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
             },
             { onConflict: "chat_id,user_id" },
           );
+          // Keep bot admin names fresh whenever they interact.
+          try {
+            await supabaseAdmin
+              .from("telegram_bot_admins")
+              .update({
+                first_name: from.first_name ?? null,
+                username: from.username ?? null,
+              })
+              .eq("user_id", from.id);
+          } catch (e) {
+            console.warn("bot_admins name refresh failed", e);
+          }
           const text: string = message.text ?? "";
           const cmd = text.trim().split(/\s+/)[0]?.split("@")[0]?.toLowerCase();
 
