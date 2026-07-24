@@ -239,23 +239,19 @@ async function promptChannels(fromId: number, chatId: number) {
     return;
   }
 
-  // Filter to chats where both bot and user are admins.
+  // Filter to chats where the bot is admin (user admin status is not required).
   const bot = await getBotIdentity();
   const eligible: Array<{ chat_id: number; title: string; type: string }> = [];
   await Promise.all(
     (chats as any[]).map(async (c) => {
-      const [bs, us] = await Promise.all([
-        getChatMemberStatus(c.chat_id, bot.id),
-        getChatMemberStatus(c.chat_id, fromId),
-      ]);
+      const bs = await getChatMemberStatus(c.chat_id, bot.id);
       const ba = bs === "administrator" || bs === "creator";
-      const ua = us === "administrator" || us === "creator";
-      if (ba && ua) eligible.push({ chat_id: c.chat_id, title: c.title ?? c.username ?? `Chat ${c.chat_id}`, type: c.type });
+      if (ba) eligible.push({ chat_id: c.chat_id, title: c.title ?? c.username ?? `Chat ${c.chat_id}`, type: c.type });
     }),
   );
 
   if (!eligible.length) {
-    await telegramCall("sendMessage", { chat_id: chatId, text: "No chats where both you and I are admin. Add me as admin first." });
+    await telegramCall("sendMessage", { chat_id: chatId, text: "I'm not an admin in any groups or channels yet. Add me as admin first." });
     await clearDraft(fromId);
     return;
   }
@@ -424,8 +420,8 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
       .limit(50);
     const eligible: Array<{ chat_id: number; title: string; type: string }> = [];
     await Promise.all((chats as any[]).map(async (c) => {
-      const [bs, us] = await Promise.all([getChatMemberStatus(c.chat_id, bot.id), getChatMemberStatus(c.chat_id, fromId)]);
-      if ((bs === "administrator" || bs === "creator") && (us === "administrator" || us === "creator")) {
+      const bs = await getChatMemberStatus(c.chat_id, bot.id);
+      if (bs === "administrator" || bs === "creator") {
         eligible.push({ chat_id: c.chat_id, title: c.title ?? c.username ?? `Chat ${c.chat_id}`, type: c.type });
       }
     }));
@@ -459,8 +455,8 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
       .limit(50);
     const eligible: number[] = [];
     await Promise.all((chats as any[]).map(async (c) => {
-      const [bs, us] = await Promise.all([getChatMemberStatus(c.chat_id, bot.id), getChatMemberStatus(c.chat_id, fromId)]);
-      if ((bs === "administrator" || bs === "creator") && (us === "administrator" || us === "creator")) eligible.push(c.chat_id);
+      const bs = await getChatMemberStatus(c.chat_id, bot.id);
+      if (bs === "administrator" || bs === "creator") eligible.push(c.chat_id);
     }));
     await saveDraft(fromId, { selected_chat_ids: eligible });
     await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: `Selected ${eligible.length}` });
