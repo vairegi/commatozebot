@@ -355,14 +355,20 @@ async function handleChannelsCommand(args: {
         }
       }
       const bucket = (c.type as "channel" | "supergroup" | "group") ?? "group";
-      buckets[bucket].push(`• ${label}${linkLine}\n  <code>${c.chat_id}</code>`);
+      buckets[bucket].push(`${label}${linkLine}\n<code>${c.chat_id}</code>`);
     }),
   );
 
+  const numbered = (items: string[]) =>
+    items.map((it, i) => `<b>${i + 1}.</b> ${it}`).join("\n\n");
+
   const sections: string[] = [];
-  if (buckets.channel.length) sections.push(`📢 <b>Channels (${buckets.channel.length})</b>\n${buckets.channel.join("\n")}`);
-  if (buckets.supergroup.length) sections.push(`👥 <b>Supergroups (${buckets.supergroup.length})</b>\n${buckets.supergroup.join("\n")}`);
-  if (buckets.group.length) sections.push(`👥 <b>Groups (${buckets.group.length})</b>\n${buckets.group.join("\n")}`);
+  if (buckets.channel.length)
+    sections.push(`📢 <b>Channels (${buckets.channel.length})</b>\n${numbered(buckets.channel)}`);
+  if (buckets.supergroup.length)
+    sections.push(`👥 <b>Supergroups (${buckets.supergroup.length})</b>\n${numbered(buckets.supergroup)}`);
+  if (buckets.group.length)
+    sections.push(`👥 <b>Groups (${buckets.group.length})</b>\n${numbered(buckets.group)}`);
 
   const text = sections.length
     ? sections.join("\n\n")
