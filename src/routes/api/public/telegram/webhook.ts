@@ -305,9 +305,9 @@ async function handleChannelsCommand(args: {
 
   const { data: chats } = await supabaseAdmin
     .from("telegram_chats")
-    .select("chat_id, title, type, username")
+    .select("chat_id, title, type, username, first_seen_at")
     .in("type", ["group", "supergroup", "channel"])
-    .order("last_activity_at", { ascending: false })
+    .order("first_seen_at", { ascending: true })
     .limit(200);
 
   if (!chats?.length) {
