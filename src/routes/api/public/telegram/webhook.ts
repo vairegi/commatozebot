@@ -531,6 +531,20 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
           const text: string = message.text ?? "";
           const cmd = text.trim().split(/\s+/)[0]?.split("@")[0]?.toLowerCase();
 
+          // /restore via uploaded JSON document (caption starts with /restore)
+          const captionCmd = (message.caption ?? "").trim().split(/\s+/)[0]?.split("@")[0]?.toLowerCase();
+          if (message.document && captionCmd === "/restore") {
+            await handleRestoreDocument({
+              fromId: from.id,
+              chatId: chat.id,
+              chatType: chat.type,
+              document: message.document,
+              telegramCall,
+              supabaseAdmin,
+            });
+            return Response.json({ ok: true });
+          }
+
           try {
             // Broadcast wizard: consume forwarded/media messages or custom-input replies first.
             const consumed = await handleBroadcastMessage({
@@ -615,6 +629,14 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               await handleReactToggle({ fromId: from.id, argText: text, chat, telegramCall, supabaseAdmin });
             } else if (cmd === "/comment") {
               await handleComment({ fromId: from.id, argText: text, replyChatId: chat.id, telegramCall, supabaseAdmin });
+            } else if (cmd === "/backup") {
+              await handleBackupCommand({ fromId: from.id, chatId: chat.id, chatType: chat.type, telegramCall, supabaseAdmin });
+            } else if (cmd === "/restore") {
+              await telegramCall("sendMessage", {
+                chat_id: chat.id,
+                text: "📥 To restore, upload the backup JSON file with caption <code>/restore</code>. Super admins only, DM only.",
+                parse_mode: "HTML",
+              });
             } else if (cmd === "/rules") {
               const { data: c } = await supabaseAdmin
                 .from("telegram_chats")

@@ -16,6 +16,7 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedChatsChatIdRouteImport } from './routes/_authenticated/chats.$chatId'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram/webhook'
 import { Route as ApiPublicHooksBroadcastTickRouteImport } from './routes/api/public/hooks/broadcast-tick'
+import { Route as ApiPublicHooksBackupWeeklyRouteImport } from './routes/api/public/hooks/backup-weekly'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -54,12 +55,19 @@ const ApiPublicHooksBroadcastTickRoute =
     path: '/api/public/hooks/broadcast-tick',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksBackupWeeklyRoute =
+  ApiPublicHooksBackupWeeklyRouteImport.update({
+    id: '/api/public/hooks/backup-weekly',
+    path: '/api/public/hooks/backup-weekly',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/chats/$chatId': typeof AuthenticatedChatsChatIdRoute
+  '/api/public/hooks/backup-weekly': typeof ApiPublicHooksBackupWeeklyRoute
   '/api/public/hooks/broadcast-tick': typeof ApiPublicHooksBroadcastTickRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
 }
@@ -68,6 +76,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/chats/$chatId': typeof AuthenticatedChatsChatIdRoute
+  '/api/public/hooks/backup-weekly': typeof ApiPublicHooksBackupWeeklyRoute
   '/api/public/hooks/broadcast-tick': typeof ApiPublicHooksBroadcastTickRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
 }
@@ -78,6 +87,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/chats/$chatId': typeof AuthenticatedChatsChatIdRoute
+  '/api/public/hooks/backup-weekly': typeof ApiPublicHooksBackupWeeklyRoute
   '/api/public/hooks/broadcast-tick': typeof ApiPublicHooksBroadcastTickRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
 }
@@ -88,6 +98,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/dashboard'
     | '/chats/$chatId'
+    | '/api/public/hooks/backup-weekly'
     | '/api/public/hooks/broadcast-tick'
     | '/api/public/telegram/webhook'
   fileRoutesByTo: FileRoutesByTo
@@ -96,6 +107,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/dashboard'
     | '/chats/$chatId'
+    | '/api/public/hooks/backup-weekly'
     | '/api/public/hooks/broadcast-tick'
     | '/api/public/telegram/webhook'
   id:
@@ -105,6 +117,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/dashboard'
     | '/_authenticated/chats/$chatId'
+    | '/api/public/hooks/backup-weekly'
     | '/api/public/hooks/broadcast-tick'
     | '/api/public/telegram/webhook'
   fileRoutesById: FileRoutesById
@@ -113,6 +126,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiPublicHooksBackupWeeklyRoute: typeof ApiPublicHooksBackupWeeklyRoute
   ApiPublicHooksBroadcastTickRoute: typeof ApiPublicHooksBroadcastTickRoute
   ApiPublicTelegramWebhookRoute: typeof ApiPublicTelegramWebhookRoute
 }
@@ -168,6 +182,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksBroadcastTickRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/backup-weekly': {
+      id: '/api/public/hooks/backup-weekly'
+      path: '/api/public/hooks/backup-weekly'
+      fullPath: '/api/public/hooks/backup-weekly'
+      preLoaderRoute: typeof ApiPublicHooksBackupWeeklyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -188,6 +209,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiPublicHooksBackupWeeklyRoute: ApiPublicHooksBackupWeeklyRoute,
   ApiPublicHooksBroadcastTickRoute: ApiPublicHooksBroadcastTickRoute,
   ApiPublicTelegramWebhookRoute: ApiPublicTelegramWebhookRoute,
 }
