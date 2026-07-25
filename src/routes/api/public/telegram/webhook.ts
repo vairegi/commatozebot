@@ -745,18 +745,17 @@ async function handleChannelsCommand(args: {
     group: [],
   };
 
-  await Promise.all(
+  const entries = await Promise.all(
     chats.map(async (c: any) => {
       const botStatus = await getChatMemberStatus(c.chat_id, bot.id);
       const botAdmin = botStatus === "administrator" || botStatus === "creator";
-      if (!botAdmin) return;
+      if (!botAdmin) return null;
 
       const label = c.title || c.username || `Chat ${c.chat_id}`;
       let linkLine = "";
       if (c.username) {
         linkLine = ` — @${c.username}`;
       } else {
-        // Private chat: try to get an invite link (bot needs can_invite_users)
         try {
           const info = await telegramCall("getChat", { chat_id: c.chat_id });
           let invite: string | undefined = info?.invite_link;
@@ -775,9 +774,14 @@ async function handleChannelsCommand(args: {
         }
       }
       const bucket = (c.type as "channel" | "supergroup" | "group") ?? "group";
-      buckets[bucket].push(`${label}${linkLine}\n<code>${c.chat_id}</code>`);
+      return { bucket, line: `${label}${linkLine}\n<code>${c.chat_id}</code>` };
     }),
   );
+
+  // Preserve DB order (oldest first, newest last)
+  for (const e of entries) {
+    if (e) buckets[e.bucket as "channel" | "supergroup" | "group"].push(e.line);
+  }
 
   const numbered = (items: string[]) =>
     items.map((it, i) => `<b>${i + 1}.</b> ${it}`).join("\n\n");
