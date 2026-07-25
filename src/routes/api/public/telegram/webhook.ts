@@ -16,7 +16,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const { deriveWebhookSecret, telegramCall, getBotIdentity, getChatMemberStatus } =
+        const { deriveWebhookSecret, telegramCall, getBotIdentity, getChatMemberStatus, setMessageReaction, REACTION_EMOJIS } =
           await import("@/lib/telegram.server");
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const { handleBroadcastCommand, handleBroadcastMessage, handleBroadcastCallback } =
@@ -194,7 +194,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
             if (consumed) return Response.json({ ok: true });
 
             // Broadcast commands
-            if (cmd === "/post" || cmd === "/broadcasts" || cmd === "/cancel") {
+            if (cmd === "/post" || cmd === "/crosspost" || cmd === "/broadcasts" || cmd === "/cancel") {
               const handled = await handleBroadcastCommand({
                 cmd,
                 fromId: from.id,
@@ -213,13 +213,26 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "/rules — show group rules\n" +
                   "/ping — check I'm alive\n" +
                   "/id — show your Telegram ID\n\n" +
+                  "/whoami — show your bot role\n\n" +
                   "In private chat:\n" +
                   "/channels — list groups & channels where I am admin\n\n" +
                   "/leave [chat_id] — make me leave a chat (admins only)\n\n" +
+                  "/invite <chat_id> — get an invite link for a chat (bot admins)\n\n" +
+                  "/stats — global bot stats (bot admins)\n\n" +
                   "📣 Broadcast (bot admins, DM only):\n" +
                   "/post — start a broadcast wizard (send/forward the post → pick channels → timing → auto-delete)\n" +
+                  "/crosspost — same wizard but forwards with the 'forwarded from' header\n" +
                   "/broadcasts — recent broadcasts, cancel pending, cancel auto-delete\n" +
                   "/cancel — abort current wizard\n\n" +
+                  "📚 Templates (bot admins, DM):\n" +
+                  "/savetpl <name> — reply to a message to save it as a template\n" +
+                  "/templates — list saved templates\n" +
+                  "/deltpl <name> — delete a template\n" +
+                  "/posttpl <name> — start a broadcast from a saved template\n\n" +
+                  "😀 Reactions (in-group, bot admins):\n" +
+                  "/react on|off — auto-react to every message in this group with a random emoji\n\n" +
+                  "💬 Channel comments (bot admins):\n" +
+                  "/comment <channel_id> <message_id> <text> — post a comment under a channel post via its linked discussion group\n\n" +
                   "Bot admins (people allowed to use this bot):\n" +
                   "/addadmin <user_id> [super] — grant bot access (super = super admin, super admins only)\n" +
                   "/radmin <user_id> — revoke bot access (super admins only for other super admins)\n" +
@@ -235,6 +248,18 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 text: `Your Telegram user ID: <code>${from.id}</code>\nChat ID: <code>${chat.id}</code>`,
                 parse_mode: "HTML",
               });
+            } else if (cmd === "/whoami") {
+              await handleWhoAmI({ fromId: from.id, fromName: from.first_name || from.username || `user ${from.id}`, replyChatId: chat.id, telegramCall, supabaseAdmin });
+            } else if (cmd === "/stats") {
+              await handleStats({ fromId: from.id, replyChatId: chat.id, telegramCall, supabaseAdmin });
+            } else if (cmd === "/invite") {
+              await handleInvite({ fromId: from.id, argText: text, replyChatId: chat.id, currentChat: chat, telegramCall, supabaseAdmin });
+            } else if (cmd === "/savetpl" || cmd === "/templates" || cmd === "/deltpl" || cmd === "/posttpl") {
+              await handleTemplateCommands({ cmd, fromId: from.id, fromName: from.first_name || from.username || `user ${from.id}`, argText: text, replyChatId: chat.id, chatType: chat.type, message, telegramCall, supabaseAdmin });
+            } else if (cmd === "/react") {
+              await handleReactToggle({ fromId: from.id, argText: text, chat, telegramCall, supabaseAdmin });
+            } else if (cmd === "/comment") {
+              await handleComment({ fromId: from.id, argText: text, replyChatId: chat.id, telegramCall, supabaseAdmin });
             } else if (cmd === "/rules") {
               const { data: c } = await supabaseAdmin
                 .from("telegram_chats")
@@ -280,6 +305,28 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 telegramCall,
                 supabaseAdmin,
               });
+            }
+
+            // Auto-react to non-command messages in groups/supergroups when enabled.
+            if (
+              !text.startsWith("/") &&
+              (chat.type === "group" || chat.type === "supergroup") &&
+              message.message_id &&
+              !from.is_bot
+            ) {
+              try {
+                const { data: chatRow } = await supabaseAdmin
+                  .from("telegram_chats")
+                  .select("reactions_enabled")
+                  .eq("chat_id", chat.id)
+                  .maybeSingle();
+                if (chatRow?.reactions_enabled) {
+                  const emoji = REACTION_EMOJIS[Math.floor(Math.random() * REACTION_EMOJIS.length)];
+                  await setMessageReaction(chat.id, message.message_id, emoji);
+                }
+              } catch (e) {
+                console.warn("auto-react failed", e);
+              }
             }
           } catch (e) {
             console.error("command failed", e);
