@@ -293,19 +293,24 @@ async function handleReactToggle(args: {
     await telegramCall("sendMessage", { chat_id: chat.id, text: "❌ Only bot admins can use /react." });
     return;
   }
-  if (chat.type !== "group" && chat.type !== "supergroup") {
-    await telegramCall("sendMessage", { chat_id: chat.id, text: "❌ /react only works in groups/supergroups (not channels or DMs)." });
+  if (chat.type !== "private") {
+    await telegramCall("sendMessage", { chat_id: chat.id, text: "❌ /react only works in a private chat with me (DM)." });
     return;
   }
   const arg = (argText.trim().split(/\s+/)[1] ?? "").toLowerCase();
   if (arg !== "on" && arg !== "off") {
     const { data: cur } = await supabaseAdmin.from("telegram_chats").select("reactions_enabled").eq("chat_id", chat.id).maybeSingle();
-    await telegramCall("sendMessage", { chat_id: chat.id, text: `😀 Auto-react is currently <b>${cur?.reactions_enabled ? "ON" : "OFF"}</b>.\nUse /react on or /react off.`, parse_mode: "HTML" });
+    await telegramCall("sendMessage", { chat_id: chat.id, text: `😀 Auto-react in this DM is currently <b>${cur?.reactions_enabled ? "ON" : "OFF"}</b>.\nUse /react on or /react off.`, parse_mode: "HTML" });
     return;
   }
   const enabled = arg === "on";
-  await supabaseAdmin.from("telegram_chats").update({ reactions_enabled: enabled }).eq("chat_id", chat.id);
-  await telegramCall("sendMessage", { chat_id: chat.id, text: enabled ? "😀 Auto-reactions enabled — I'll react to every message here." : "🚫 Auto-reactions disabled." });
+  await supabaseAdmin
+    .from("telegram_chats")
+    .upsert(
+      { chat_id: chat.id, type: chat.type, reactions_enabled: enabled },
+      { onConflict: "chat_id" },
+    );
+  await telegramCall("sendMessage", { chat_id: chat.id, text: enabled ? "😀 Auto-reactions enabled — I'll react to every message you send me here." : "🚫 Auto-reactions disabled." });
 }
 
 async function handleComment(args: {
@@ -573,8 +578,8 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "/templates — list saved templates\n" +
                   "/deltpl <name> — delete a template\n" +
                   "/posttpl <name> — start a broadcast from a saved template\n\n" +
-                  "😀 Reactions (in-group, bot admins):\n" +
-                  "/react on|off — auto-react to every message in this group with a random emoji\n\n" +
+                  "😀 Reactions (DM only, bot admins):\n" +
+                  "/react on|off — auto-react to every message you send me in DM with a random emoji\n\n" +
                   "💬 Channel comments (bot admins):\n" +
                   "/comment <channel_id> <message_id> <text> — post a comment under a channel post via its linked discussion group\n\n" +
                   "Bot admins (people allowed to use this bot):\n" +
@@ -651,10 +656,9 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               });
             }
 
-            // Auto-react to non-command messages in groups/supergroups when enabled.
+            // Auto-react to every message (including commands) in private DMs when enabled.
             if (
-              !text.startsWith("/") &&
-              (chat.type === "group" || chat.type === "supergroup") &&
+              chat.type === "private" &&
               message.message_id &&
               !from.is_bot
             ) {
