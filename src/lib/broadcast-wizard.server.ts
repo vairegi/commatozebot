@@ -312,6 +312,9 @@ async function renderChannelPicker(
     { text: "📚 Manga", callback_data: "bc:pre:manga" },
   ]);
   rows.push([
+    { text: "🔞+📚 Adult & Manga", callback_data: "bc:pre:both" },
+  ]);
+  rows.push([
     { text: "❌ Cancel", callback_data: "bc:x" },
     { text: `➡️ Next (${selected.length})`, callback_data: "bc:next" },
   ]);
@@ -319,7 +322,7 @@ async function renderChannelPicker(
     chat_id: chatId,
     text:
       `📡 <b>Pick target channels</b>\n\n` +
-      `Tap to toggle, or use a preset: All / 🔞 Adult / 📚 Manga. Then press Next.`,
+      `Tap to toggle, or use a preset: All / 🔞 Adult / 📚 Manga / 🔞+📚 Both. Then press Next.`,
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: rows },
   });
@@ -473,6 +476,9 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
       { text: "📚 Manga", callback_data: "bc:pre:manga" },
     ]);
     rows.push([
+      { text: "🔞+📚 Adult & Manga", callback_data: "bc:pre:both" },
+    ]);
+    rows.push([
       { text: "❌ Cancel", callback_data: "bc:x" },
       { text: `➡️ Next (${next.length})`, callback_data: "bc:next" },
     ]);
@@ -487,8 +493,9 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
   }
 
   if (op === "pre" && draft) {
-    const category = arg === "adult" ? "adult" : arg === "manga" ? "manga" : null;
-    if (!category) {
+    const categories: Array<"adult" | "manga"> =
+      arg === "adult" ? ["adult"] : arg === "manga" ? ["manga"] : arg === "both" ? ["adult", "manga"] : [];
+    if (!categories.length) {
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
       return true;
     }
@@ -496,12 +503,12 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     const { data: listRows } = await supabaseAdmin
       .from("chat_lists")
       .select("chat_id")
-      .eq("category", category);
+      .in("category", categories);
     const listIds = new Set<number>((listRows ?? []).map((r: any) => Number(r.chat_id)));
     if (!listIds.size) {
       await telegramCall("answerCallbackQuery", {
         callback_query_id: cq.id,
-        text: `The ${category} list is empty. Use /addtolist ${category} <chat_id>.`,
+        text: `The ${categories.join(" & ")} list is empty. Use /addtolist <category> <chat_id>.`,
         show_alert: true,
       });
       return true;
@@ -522,7 +529,7 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     if (!eligible.length) {
       await telegramCall("answerCallbackQuery", {
         callback_query_id: cq.id,
-        text: `No chats in the ${category} list where I'm currently admin.`,
+        text: `No chats in the ${categories.join(" & ")} list where I'm currently admin.`,
         show_alert: true,
       });
       return true;
@@ -530,7 +537,7 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     await saveDraft(fromId, { selected_chat_ids: eligible });
     await telegramCall("answerCallbackQuery", {
       callback_query_id: cq.id,
-      text: `Selected ${eligible.length} ${category} chat${eligible.length === 1 ? "" : "s"}.`,
+      text: `Selected ${eligible.length} chat${eligible.length === 1 ? "" : "s"} (${categories.join(" & ")}).`,
     });
     return true;
   }
