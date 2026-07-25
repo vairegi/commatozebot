@@ -265,6 +265,31 @@ async function promptChannels(fromId: number, chatId: number) {
   await renderChannelPicker(fromId, chatId, eligible, []);
 }
 
+/** Start a broadcast wizard directly from a saved template (skips awaiting_content). */
+export async function startBroadcastFromTemplate(args: {
+  fromId: number;
+  chatId: number;
+  template: { source_chat_id: number; source_message_id: number; preview_text?: string | null; mode?: string | null };
+}): Promise<boolean> {
+  const { fromId, chatId, template } = args;
+  const admin = await getBotAdmin(fromId);
+  if (!admin) return false;
+  await saveDraft(fromId, {
+    step: "awaiting_channels",
+    source_chat_id: template.source_chat_id,
+    source_message_id: template.source_message_id,
+    preview_text: template.preview_text ?? null,
+    selected_chat_ids: [],
+    scheduled_at: null,
+    auto_delete_seconds: null,
+    editing_broadcast_id: null,
+    awaiting_custom: null,
+    mode: template.mode ?? "copy",
+  });
+  await promptChannels(fromId, chatId);
+  return true;
+}
+
 async function renderChannelPicker(
   _fromId: number,
   chatId: number,
