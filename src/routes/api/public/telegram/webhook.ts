@@ -587,6 +587,12 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "/radmin <user_id> — revoke bot access (super admins only for other super admins)\n" +
                   "/listadmins — list bot admins\n" +
                   "(First caller becomes the owner 👑 automatically.)\n\n" +
+                  "📚 Channel lists (bot admins, DM):\n" +
+                  "/adultchannels — list channels in the Adult list\n" +
+                  "/mangachannels — list channels in the Manga list\n" +
+                  "/addtolist <adult|manga> <chat_id> [chat_id …] — add channels to a list\n" +
+                  "/removefromlist <adult|manga> <chat_id> [chat_id …] — remove channels\n" +
+                  "In /post you can pick All, Adult only, or Manga only.\n\n" +
                   "Admins can manage this group from the web dashboard.",
               });
             } else if (cmd === "/ping") {
