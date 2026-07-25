@@ -607,6 +607,10 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "/addtolist <adult|manga> <chat_id> [chat_id …] — add channels to a list\n" +
                   "/removefromlist <adult|manga> <chat_id> [chat_id …] — remove channels\n" +
                   "In /post you can pick All, Adult only, or Manga only.\n\n" +
+                  "🗄 Backup (super admins, DM):\n" +
+                  "/backup — DM you a JSON backup of all app data now\n" +
+                  "/restore — upload a backup JSON as a document with caption /restore to restore\n" +
+                  "(A weekly backup is also DM'd automatically.)\n\n" +
                   "Admins can manage this group from the web dashboard.",
               });
             } else if (cmd === "/ping") {
