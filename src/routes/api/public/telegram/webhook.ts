@@ -752,29 +752,32 @@ async function handleChannelsCommand(args: {
       if (!botAdmin) return null;
 
       const label = c.title || c.username || `Chat ${c.chat_id}`;
-      let linkLine = "";
+      let url: string | undefined;
+      let suffix = "";
       if (c.username) {
-        linkLine = ` — @${c.username}`;
+        url = `https://t.me/${c.username}`;
       } else {
         try {
           const info = await telegramCall("getChat", { chat_id: c.chat_id });
-          let invite: string | undefined = info?.invite_link;
-          if (!invite) {
+          url = info?.invite_link;
+          if (!url) {
             try {
               const created = await telegramCall("exportChatInviteLink", { chat_id: c.chat_id });
-              if (typeof created === "string") invite = created;
+              if (typeof created === "string") url = created;
             } catch (e) {
               console.warn("exportChatInviteLink failed", c.chat_id, e);
             }
           }
-          if (invite) linkLine = ` — <a href="${invite}">invite link</a>`;
-          else linkLine = " — 🔒 private (no invite permission)";
+          if (!url) suffix = " 🔒";
         } catch (e) {
           console.warn("getChat failed", c.chat_id, e);
         }
       }
+      const name = url
+        ? `<a href="${url}">${escapeHtml(label)}</a>`
+        : escapeHtml(label);
       const bucket = (c.type as "channel" | "supergroup" | "group") ?? "group";
-      return { bucket, line: `${label}${linkLine}\n<code>${c.chat_id}</code>` };
+      return { bucket, line: `${name}${suffix} — <code>${c.chat_id}</code>` };
     }),
   );
 
