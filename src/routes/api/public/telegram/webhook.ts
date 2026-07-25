@@ -587,6 +587,12 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "/radmin <user_id> — revoke bot access (super admins only for other super admins)\n" +
                   "/listadmins — list bot admins\n" +
                   "(First caller becomes the owner 👑 automatically.)\n\n" +
+                  "📚 Channel lists (bot admins, DM):\n" +
+                  "/adultchannels — list channels in the Adult list\n" +
+                  "/mangachannels — list channels in the Manga list\n" +
+                  "/addtolist <adult|manga> <chat_id> [chat_id …] — add channels to a list\n" +
+                  "/removefromlist <adult|manga> <chat_id> [chat_id …] — remove channels\n" +
+                  "In /post you can pick All, Adult only, or Manga only.\n\n" +
                   "Admins can manage this group from the web dashboard.",
               });
             } else if (cmd === "/ping") {
@@ -651,6 +657,25 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 fromName: from.first_name || from.username || `user ${from.id}`,
                 argText: text,
                 replyChatId: chat.id,
+                telegramCall,
+                supabaseAdmin,
+              });
+            } else if (
+              cmd === "/adultchannels" ||
+              cmd === "/adultchannel" ||
+              cmd === "/mangachannels" ||
+              cmd === "/mangachannel" ||
+              cmd === "/addtolist" ||
+              cmd === "/removefromlist" ||
+              cmd === "/rmfromlist"
+            ) {
+              await handleChatListCommands({
+                cmd,
+                fromId: from.id,
+                fromName: from.first_name || from.username || `user ${from.id}`,
+                argText: text,
+                replyChatId: chat.id,
+                chatType: chat.type,
                 telegramCall,
                 supabaseAdmin,
               });
@@ -1056,4 +1081,121 @@ async function handleBotAdminCommands(args: {
     const label = existing.first_name || existing.username || `user ${targetId}`;
     await send(`🗑️ Removed ${label} (<code>${targetId}</code>) from bot admins.`, { parse_mode: "HTML" });
   }
+}
+
+async function handleChatListCommands(args: {
+  cmd: string;
+  fromId: number;
+  fromName: string;
+  argText: string;
+  replyChatId: number;
+  chatType: string;
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  supabaseAdmin: any;
+}) {
+  const { cmd, fromId, fromName, argText, replyChatId, chatType, telegramCall, supabaseAdmin } = args;
+  const send = (text: string, extra: Record<string, unknown> = {}) =>
+    telegramCall("sendMessage", { chat_id: replyChatId, text, ...extra });
+
+  const { is } = await isBotAdmin(supabaseAdmin, fromId);
+  if (!is) {
+    await send("❌ Only bot admins can manage channel lists.");
+    return;
+  }
+  if (chatType !== "private") {
+    await send(`🔒 Use ${cmd} in a private chat with me.`);
+    return;
+  }
+
+  const listCmd =
+    cmd === "/adultchannels" || cmd === "/adultchannel"
+      ? "adult"
+      : cmd === "/mangachannels" || cmd === "/mangachannel"
+        ? "manga"
+        : null;
+
+  if (listCmd) {
+    const { data: rows } = await supabaseAdmin
+      .from("chat_lists")
+      .select("chat_id, created_at")
+      .eq("category", listCmd)
+      .order("created_at", { ascending: true });
+    if (!rows?.length) {
+      await send(
+        `📭 The ${listCmd} list is empty.\nAdd channels with /addtolist ${listCmd} <chat_id> [chat_id …]`,
+      );
+      return;
+    }
+    const ids = rows.map((r: any) => Number(r.chat_id));
+    const { data: chats } = await supabaseAdmin
+      .from("telegram_chats")
+      .select("chat_id, title, username, type")
+      .in("chat_id", ids);
+    const byId = new Map<number, any>((chats ?? []).map((c: any) => [Number(c.chat_id), c]));
+    const emoji = listCmd === "adult" ? "🔞" : "📚";
+    const header = `${emoji} <b>${listCmd === "adult" ? "Adult" : "Manga"} channels (${rows.length})</b>`;
+    const lines = rows.map((r: any, i: number) => {
+      const c = byId.get(Number(r.chat_id));
+      const title = c?.title || (c?.username ? `@${c.username}` : `Chat ${r.chat_id}`);
+      const uname = c?.username ? ` — @${c.username}` : "";
+      return `<b>${i + 1}.</b> ${escapeHtml(title)}${uname}\n<code>${r.chat_id}</code>`;
+    });
+    await send(`${header}\n\n${lines.join("\n\n")}`, {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
+    return;
+  }
+
+  // /addtolist and /removefromlist
+  const rest = argText.replace(/^\/\S+\s*/, "").trim();
+  const parts = rest.split(/\s+/).filter(Boolean);
+  const category = (parts.shift() ?? "").toLowerCase();
+  if (category !== "adult" && category !== "manga") {
+    await send(
+      `Usage:\n${cmd} <adult|manga> <chat_id> [chat_id …]\n\nExample: ${cmd} adult -1001710860595 -1002298797194`,
+    );
+    return;
+  }
+  const ids = parts
+    .map((p) => Number(p))
+    .filter((n) => Number.isFinite(n) && n !== 0);
+  if (!ids.length) {
+    await send(`Provide at least one chat_id. Run /channels to see IDs.`);
+    return;
+  }
+
+  if (cmd === "/addtolist") {
+    const rows = ids.map((chat_id) => ({
+      category,
+      chat_id,
+      added_by: fromId,
+      added_by_name: fromName,
+    }));
+    const { error } = await supabaseAdmin
+      .from("chat_lists")
+      .upsert(rows, { onConflict: "category,chat_id" });
+    if (error) {
+      await send(`❌ Failed: ${error.message}`);
+      return;
+    }
+    await send(
+      `✅ Added ${ids.length} chat${ids.length === 1 ? "" : "s"} to the ${category} list.\nSee /${category}channels`,
+    );
+    return;
+  }
+
+  // remove
+  const { error } = await supabaseAdmin
+    .from("chat_lists")
+    .delete()
+    .eq("category", category)
+    .in("chat_id", ids);
+  if (error) {
+    await send(`❌ Failed: ${error.message}`);
+    return;
+  }
+  await send(
+    `🗑 Removed ${ids.length} chat${ids.length === 1 ? "" : "s"} from the ${category} list.`,
+  );
 }

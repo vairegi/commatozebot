@@ -308,12 +308,18 @@ async function renderChannelPicker(
   });
   rows.push([
     { text: "☑️ All", callback_data: "bc:all" },
+    { text: "🔞 Adult", callback_data: "bc:pre:adult" },
+    { text: "📚 Manga", callback_data: "bc:pre:manga" },
+  ]);
+  rows.push([
     { text: "❌ Cancel", callback_data: "bc:x" },
     { text: `➡️ Next (${selected.length})`, callback_data: "bc:next" },
   ]);
   await telegramCall("sendMessage", {
     chat_id: chatId,
-    text: `📡 <b>Pick target channels</b>\n\nTap to toggle. Then press Next.`,
+    text:
+      `📡 <b>Pick target channels</b>\n\n` +
+      `Tap to toggle, or use a preset: All / 🔞 Adult / 📚 Manga. Then press Next.`,
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: rows },
   });
@@ -463,6 +469,10 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     });
     rows.push([
       { text: "☑️ All", callback_data: "bc:all" },
+      { text: "🔞 Adult", callback_data: "bc:pre:adult" },
+      { text: "📚 Manga", callback_data: "bc:pre:manga" },
+    ]);
+    rows.push([
       { text: "❌ Cancel", callback_data: "bc:x" },
       { text: `➡️ Next (${next.length})`, callback_data: "bc:next" },
     ]);
@@ -473,6 +483,55 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
         reply_markup: { inline_keyboard: rows },
       });
     } catch { /* ignore */ }
+    return true;
+  }
+
+  if (op === "pre" && draft) {
+    const category = arg === "adult" ? "adult" : arg === "manga" ? "manga" : null;
+    if (!category) {
+      await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
+      return true;
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: listRows } = await supabaseAdmin
+      .from("chat_lists")
+      .select("chat_id")
+      .eq("category", category);
+    const listIds = new Set<number>((listRows ?? []).map((r: any) => Number(r.chat_id)));
+    if (!listIds.size) {
+      await telegramCall("answerCallbackQuery", {
+        callback_query_id: cq.id,
+        text: `The ${category} list is empty. Use /addtolist ${category} <chat_id>.`,
+        show_alert: true,
+      });
+      return true;
+    }
+    // Filter to chats where the bot is admin.
+    const bot = await getBotIdentity();
+    const { data: chats } = await supabaseAdmin
+      .from("telegram_chats")
+      .select("chat_id")
+      .in("chat_id", Array.from(listIds));
+    const eligible: number[] = [];
+    await Promise.all(
+      ((chats as any[]) ?? []).map(async (c) => {
+        const bs = await getChatMemberStatus(Number(c.chat_id), bot.id);
+        if (bs === "administrator" || bs === "creator") eligible.push(Number(c.chat_id));
+      }),
+    );
+    if (!eligible.length) {
+      await telegramCall("answerCallbackQuery", {
+        callback_query_id: cq.id,
+        text: `No chats in the ${category} list where I'm currently admin.`,
+        show_alert: true,
+      });
+      return true;
+    }
+    await saveDraft(fromId, { selected_chat_ids: eligible });
+    await telegramCall("answerCallbackQuery", {
+      callback_query_id: cq.id,
+      text: `Selected ${eligible.length} ${category} chat${eligible.length === 1 ? "" : "s"}.`,
+    });
     return true;
   }
 

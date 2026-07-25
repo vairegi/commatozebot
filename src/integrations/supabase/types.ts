@@ -193,6 +193,30 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_lists: {
+        Row: {
+          added_by: number | null
+          added_by_name: string | null
+          category: string
+          chat_id: number
+          created_at: string
+        }
+        Insert: {
+          added_by?: number | null
+          added_by_name?: string | null
+          category: string
+          chat_id: number
+          created_at?: string
+        }
+        Update: {
+          added_by?: number | null
+          added_by_name?: string | null
+          category?: string
+          chat_id?: number
+          created_at?: string
+        }
+        Relationships: []
+      }
       moderation_actions: {
         Row: {
           action: string
