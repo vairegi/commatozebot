@@ -1,5 +1,5 @@
 // Server-only broadcast helpers: timing parser (IST), sender, deleter.
-import { telegramCall } from "./telegram.server";
+import { telegramCall, buildMessageLink } from "./telegram.server";
 
 const IST_OFFSET_MIN = 330; // +05:30
 
@@ -187,9 +187,12 @@ export function fmtDuration(seconds: number): string {
 
 export interface SendResultTarget {
   chat_id: number;
+  chat_title?: string | null;
+  username?: string | null;
   ok: boolean;
   error?: string;
   message_id?: number;
+  link?: string | null;
 }
 
 /** Copy the source message to every target chat. */
@@ -201,7 +204,7 @@ export async function executeBroadcast(broadcastId: string): Promise<{
 
   const { data: bc, error: bcErr } = await supabaseAdmin
     .from("broadcasts")
-    .select("id, source_chat_id, source_message_id, auto_delete_seconds, status")
+    .select("id, source_chat_id, source_message_id, auto_delete_seconds, status, mode")
     .eq("id", broadcastId)
     .maybeSingle();
   if (bcErr || !bc) throw new Error(`broadcast not found: ${broadcastId}`);
@@ -217,11 +220,26 @@ export async function executeBroadcast(broadcastId: string): Promise<{
     .eq("broadcast_id", broadcastId)
     .eq("status", "pending");
 
+  // Preload usernames so we can build t.me links for delivery reports.
+  const chatIds = (targets ?? []).map((t: any) => t.chat_id);
+  const { data: chatMeta } = chatIds.length
+    ? await supabaseAdmin
+        .from("telegram_chats")
+        .select("chat_id, username, title")
+        .in("chat_id", chatIds)
+    : { data: [] as any[] };
+  const metaMap = new Map<number, { username: string | null; title: string | null }>();
+  for (const c of (chatMeta as any[]) ?? []) {
+    metaMap.set(Number(c.chat_id), { username: c.username ?? null, title: c.title ?? null });
+  }
+
+  const method = (bc as any).mode === "forward" ? "forwardMessage" : "copyMessage";
+
   const results: SendResultTarget[] = [];
   const nowMs = Date.now();
   for (const t of targets ?? []) {
     try {
-      const res = await telegramCall("copyMessage", {
+      const res = await telegramCall(method, {
         chat_id: t.chat_id,
         from_chat_id: bc.source_chat_id,
         message_id: bc.source_message_id,
@@ -239,14 +257,29 @@ export async function executeBroadcast(broadcastId: string): Promise<{
           error: null,
         })
         .eq("id", t.id);
-      results.push({ chat_id: t.chat_id, ok: true, message_id: mid });
+      const meta = metaMap.get(Number(t.chat_id));
+      results.push({
+        chat_id: t.chat_id,
+        chat_title: t.chat_title ?? meta?.title ?? null,
+        username: meta?.username ?? null,
+        ok: true,
+        message_id: mid,
+        link: mid ? buildMessageLink({ chatId: t.chat_id, messageId: mid, username: meta?.username }) : null,
+      });
     } catch (e: any) {
       const msg = e?.message ?? String(e);
       await supabaseAdmin
         .from("broadcast_targets")
         .update({ status: "failed", error: msg })
         .eq("id", t.id);
-      results.push({ chat_id: t.chat_id, ok: false, error: msg });
+      const meta = metaMap.get(Number(t.chat_id));
+      results.push({
+        chat_id: t.chat_id,
+        chat_title: t.chat_title ?? meta?.title ?? null,
+        username: meta?.username ?? null,
+        ok: false,
+        error: msg,
+      });
     }
   }
 
@@ -260,6 +293,37 @@ export async function executeBroadcast(broadcastId: string): Promise<{
     .eq("id", broadcastId);
 
   return { targets: results, status };
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Build a per-channel ✅/❌ delivery report with message links. */
+export function formatDeliveryReport(
+  results: SendResultTarget[],
+  status: "sent" | "partial" | "failed",
+): string {
+  const ok = results.filter((r) => r.ok).length;
+  const fail = results.length - ok;
+  const headline =
+    status === "sent"
+      ? "📣 <b>Broadcast delivered</b>"
+      : status === "partial"
+        ? "📣 <b>Broadcast partially delivered</b>"
+        : "📣 <b>Broadcast failed</b>";
+  const lines = [headline, `✅ ${ok} delivered${fail ? `   ❌ ${fail} failed` : ""}`, ""];
+  for (const r of results) {
+    const title = escapeHtml(r.chat_title ?? String(r.chat_id));
+    if (r.ok) {
+      const link = r.link ? ` — <a href="${r.link}">open</a>` : "";
+      lines.push(`✅ ${title}${link}`);
+    } else {
+      const err = r.error ? ` — ${escapeHtml(r.error.slice(0, 100))}` : "";
+      lines.push(`❌ ${title}${err}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 /** Run pending scheduled broadcasts and pending auto-deletes. */
@@ -287,11 +351,11 @@ export async function tickBroadcasts(): Promise<{
       sent++;
       // notify creator DM
       try {
-        const okCount = res.targets.filter((t) => t.ok).length;
-        const failCount = res.targets.length - okCount;
         await telegramCall("sendMessage", {
           chat_id: b.created_by,
-          text: `📣 Scheduled broadcast sent.\n✅ ${okCount} delivered${failCount ? `\n❌ ${failCount} failed` : ""}`,
+          text: formatDeliveryReport(res.targets, res.status),
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
         });
       } catch { /* ignore */ }
     } catch (e) {

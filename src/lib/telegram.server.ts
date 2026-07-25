@@ -53,3 +53,41 @@ export async function getChatMemberStatus(
     return null;
   }
 }
+
+/** Build a t.me link to a message. Public username -> t.me/<username>/<id>, private supergroup/channel -> t.me/c/<internal>/<id>. */
+export function buildMessageLink(opts: {
+  chatId: number;
+  messageId: number;
+  username?: string | null;
+}): string | null {
+  if (!opts.messageId) return null;
+  if (opts.username) return `https://t.me/${opts.username}/${opts.messageId}`;
+  // Private supergroups/channels have id like -100XXXXXXXXXX; strip the -100 prefix.
+  const s = String(opts.chatId);
+  if (s.startsWith("-100")) {
+    const internal = s.slice(4);
+    return `https://t.me/c/${internal}/${opts.messageId}`;
+  }
+  return null;
+}
+
+/** React to a message with a single emoji (Telegram Bot API 7.0+). */
+export async function setMessageReaction(
+  chatId: number,
+  messageId: number,
+  emoji: string,
+): Promise<void> {
+  await telegramCall("setMessageReaction", {
+    chat_id: chatId,
+    message_id: messageId,
+    reaction: [{ type: "emoji", emoji }],
+    is_big: false,
+  });
+}
+
+/** Emojis Telegram accepts as free reactions on most chats. */
+export const REACTION_EMOJIS = [
+  "👍","👎","❤","🔥","🥰","👏","😁","🤔","🤯","😱",
+  "🎉","🤩","😢","🙏","👌","🕊","🤣","⚡","🍌","🏆",
+  "💯","🤗","🫡","😍","🐳","❤‍🔥","🌚","🌭","💅","🤪",
+];

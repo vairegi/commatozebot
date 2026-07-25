@@ -6,6 +6,7 @@ import {
   fmtIST,
   fmtDuration,
   executeBroadcast,
+  formatDeliveryReport,
 } from "./broadcast.server";
 
 type Admin = { user_id: number; role: string };
@@ -66,7 +67,7 @@ export async function handleBroadcastCommand(args: {
   chatType: string;
 }): Promise<boolean> {
   const { cmd, fromId, fromName, chatId, chatType } = args;
-  if (cmd !== "/post" && cmd !== "/broadcasts" && cmd !== "/cancel") return false;
+  if (cmd !== "/post" && cmd !== "/crosspost" && cmd !== "/broadcasts" && cmd !== "/cancel") return false;
 
   const admin = await getBotAdmin(fromId);
   if (!admin) {
@@ -95,7 +96,8 @@ export async function handleBroadcastCommand(args: {
     return true;
   }
 
-  if (cmd === "/post") {
+  if (cmd === "/post" || cmd === "/crosspost") {
+    const mode = cmd === "/crosspost" ? "forward" : "copy";
     await saveDraft(fromId, {
       step: "awaiting_content",
       source_chat_id: null,
@@ -106,11 +108,15 @@ export async function handleBroadcastCommand(args: {
       auto_delete_seconds: null,
       editing_broadcast_id: null,
       awaiting_custom: null,
+      mode,
     });
+    const label = mode === "forward"
+      ? "🔁 <b>New crosspost</b> (forwards with 'forwarded from' header)"
+      : "📝 <b>New broadcast</b> (clean copy, no forward header)";
     await telegramCall("sendMessage", {
       chat_id: chatId,
       text:
-        "📝 <b>New broadcast</b>\n\nSend or forward the message you want to broadcast (text, photo, video, document, etc.).\n\nUse /cancel to abort.",
+        `${label}\n\nSend or forward the message you want to broadcast (text, photo, video, document, etc.).\n\nUse /cancel to abort.`,
       parse_mode: "HTML",
     });
     return true;
@@ -257,6 +263,31 @@ async function promptChannels(fromId: number, chatId: number) {
   }
 
   await renderChannelPicker(fromId, chatId, eligible, []);
+}
+
+/** Start a broadcast wizard directly from a saved template (skips awaiting_content). */
+export async function startBroadcastFromTemplate(args: {
+  fromId: number;
+  chatId: number;
+  template: { source_chat_id: number; source_message_id: number; preview_text?: string | null; mode?: string | null };
+}): Promise<boolean> {
+  const { fromId, chatId, template } = args;
+  const admin = await getBotAdmin(fromId);
+  if (!admin) return false;
+  await saveDraft(fromId, {
+    step: "awaiting_channels",
+    source_chat_id: template.source_chat_id,
+    source_message_id: template.source_message_id,
+    preview_text: template.preview_text ?? null,
+    selected_chat_ids: [],
+    scheduled_at: null,
+    auto_delete_seconds: null,
+    editing_broadcast_id: null,
+    awaiting_custom: null,
+    mode: template.mode ?? "copy",
+  });
+  await promptChannels(fromId, chatId);
+  return true;
 }
 
 async function renderChannelPicker(
@@ -553,6 +584,7 @@ async function commitDraft(fromId: number, fromName: string, chatId: number) {
       preview_text: d.preview_text,
       scheduled_at: d.scheduled_at,
       auto_delete_seconds: d.auto_delete_seconds,
+      mode: d.mode ?? "copy",
       status: "pending",
     })
     .select("id")
@@ -581,16 +613,12 @@ async function commitDraft(fromId: number, fromName: string, chatId: number) {
     await telegramCall("sendMessage", { chat_id: chatId, text: "🚀 Sending now…" });
     try {
       const res = await executeBroadcast(bc.id);
-      const ok = res.targets.filter((t) => t.ok).length;
-      const fail = res.targets.length - ok;
-      const lines = [`📣 Broadcast ${res.status}.`, `✅ ${ok} delivered`];
-      if (fail) {
-        lines.push(`❌ ${fail} failed`);
-        for (const t of res.targets.filter((x) => !x.ok)) {
-          lines.push(`  • ${t.chat_id}: ${t.error?.slice(0, 80)}`);
-        }
-      }
-      await telegramCall("sendMessage", { chat_id: chatId, text: lines.join("\n") });
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: formatDeliveryReport(res.targets, res.status),
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      });
     } catch (e: any) {
       await telegramCall("sendMessage", { chat_id: chatId, text: `❌ Send failed: ${e?.message ?? e}` });
     }
