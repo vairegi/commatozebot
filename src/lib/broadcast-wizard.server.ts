@@ -308,12 +308,18 @@ async function renderChannelPicker(
   });
   rows.push([
     { text: "☑️ All", callback_data: "bc:all" },
+    { text: "🔞 Adult", callback_data: "bc:pre:adult" },
+    { text: "📚 Manga", callback_data: "bc:pre:manga" },
+  ]);
+  rows.push([
     { text: "❌ Cancel", callback_data: "bc:x" },
     { text: `➡️ Next (${selected.length})`, callback_data: "bc:next" },
   ]);
   await telegramCall("sendMessage", {
     chat_id: chatId,
-    text: `📡 <b>Pick target channels</b>\n\nTap to toggle. Then press Next.`,
+    text:
+      `📡 <b>Pick target channels</b>\n\n` +
+      `Tap to toggle, or use a preset: All / 🔞 Adult / 📚 Manga. Then press Next.`,
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: rows },
   });
