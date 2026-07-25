@@ -531,6 +531,20 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
           const text: string = message.text ?? "";
           const cmd = text.trim().split(/\s+/)[0]?.split("@")[0]?.toLowerCase();
 
+          // /restore via uploaded JSON document (caption starts with /restore)
+          const captionCmd = (message.caption ?? "").trim().split(/\s+/)[0]?.split("@")[0]?.toLowerCase();
+          if (message.document && captionCmd === "/restore") {
+            await handleRestoreDocument({
+              fromId: from.id,
+              chatId: chat.id,
+              chatType: chat.type,
+              document: message.document,
+              telegramCall,
+              supabaseAdmin,
+            });
+            return Response.json({ ok: true });
+          }
+
           try {
             // Broadcast wizard: consume forwarded/media messages or custom-input replies first.
             const consumed = await handleBroadcastMessage({
@@ -593,6 +607,10 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "/addtolist <adult|manga> <chat_id> [chat_id …] — add channels to a list\n" +
                   "/removefromlist <adult|manga> <chat_id> [chat_id …] — remove channels\n" +
                   "In /post you can pick All, Adult only, or Manga only.\n\n" +
+                  "🗄 Backup (super admins, DM):\n" +
+                  "/backup — DM you a JSON backup of all app data now\n" +
+                  "/restore — upload a backup JSON as a document with caption /restore to restore\n" +
+                  "(A weekly backup is also DM'd automatically.)\n\n" +
                   "Admins can manage this group from the web dashboard.",
               });
             } else if (cmd === "/ping") {
@@ -615,6 +633,14 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               await handleReactToggle({ fromId: from.id, argText: text, chat, telegramCall, supabaseAdmin });
             } else if (cmd === "/comment") {
               await handleComment({ fromId: from.id, argText: text, replyChatId: chat.id, telegramCall, supabaseAdmin });
+            } else if (cmd === "/backup") {
+              await handleBackupCommand({ fromId: from.id, chatId: chat.id, chatType: chat.type, telegramCall, supabaseAdmin });
+            } else if (cmd === "/restore") {
+              await telegramCall("sendMessage", {
+                chat_id: chat.id,
+                text: "📥 To restore, upload the backup JSON file with caption <code>/restore</code>. Super admins only, DM only.",
+                parse_mode: "HTML",
+              });
             } else if (cmd === "/rules") {
               const { data: c } = await supabaseAdmin
                 .from("telegram_chats")
@@ -1232,4 +1258,80 @@ async function handleChatListCommands(args: {
   await send(
     `🗑 Removed ${ids.length} chat${ids.length === 1 ? "" : "s"} from the ${category} list.`,
   );
+}
+
+async function handleBackupCommand(args: {
+  fromId: number;
+  chatId: number;
+  chatType: string;
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  supabaseAdmin: any;
+}) {
+  const { fromId, chatId, chatType, telegramCall, supabaseAdmin } = args;
+  if (chatType !== "private") {
+    await telegramCall("sendMessage", { chat_id: chatId, text: "🔒 Use /backup in a private chat with me." });
+    return;
+  }
+  const { role } = await isBotAdmin(supabaseAdmin, fromId);
+  if (role !== "super_admin") {
+    await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Only super admins can run /backup." });
+    return;
+  }
+  await telegramCall("sendMessage", { chat_id: chatId, text: "📦 Building backup…" });
+  try {
+    const { buildBackup, sendJsonDocument } = await import("@/lib/backup.server");
+    const payload = await buildBackup();
+    const filename = `telemanage-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    const totalRows = Object.values(payload.meta.row_counts).reduce((a, b) => a + b, 0);
+    const caption =
+      `🗄 <b>Backup</b>\n` +
+      `Generated: <code>${payload.generated_at}</code>\n` +
+      `Rows: <b>${totalRows}</b> across ${Object.keys(payload.meta.row_counts).length} tables\n` +
+      (payload.meta.notes.length ? `Notes: ${escapeHtml(payload.meta.notes.join("; "))}` : "");
+    await sendJsonDocument(chatId, filename, payload, caption);
+  } catch (e: any) {
+    await telegramCall("sendMessage", { chat_id: chatId, text: `❌ Backup failed: ${e?.message ?? "unknown"}` });
+  }
+}
+
+async function handleRestoreDocument(args: {
+  fromId: number;
+  chatId: number;
+  chatType: string;
+  document: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  supabaseAdmin: any;
+}) {
+  const { fromId, chatId, chatType, document, telegramCall, supabaseAdmin } = args;
+  if (chatType !== "private") {
+    await telegramCall("sendMessage", { chat_id: chatId, text: "🔒 Restore only works in a private chat with me." });
+    return;
+  }
+  const { role } = await isBotAdmin(supabaseAdmin, fromId);
+  if (role !== "super_admin") {
+    await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Only super admins can /restore." });
+    return;
+  }
+  await telegramCall("sendMessage", { chat_id: chatId, text: "📥 Downloading backup…" });
+  try {
+    const { downloadTelegramFile, restoreFromPayload } = await import("@/lib/backup.server");
+    const buf = await downloadTelegramFile(document.file_id);
+    const text = new TextDecoder().decode(buf);
+    const payload = JSON.parse(text);
+    if (payload?.version !== 1 || !payload?.tables) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: "❌ File doesn't look like a TeleManage backup (missing version/tables)." });
+      return;
+    }
+    await telegramCall("sendMessage", { chat_id: chatId, text: "♻️ Restoring… this may take a moment." });
+    const { restored, errors } = await restoreFromPayload(payload);
+    const lines = ["✅ <b>Restore complete</b>", ""];
+    for (const [t, n] of Object.entries(restored)) lines.push(`• ${t}: <b>${n}</b>`);
+    if (Object.keys(errors).length) {
+      lines.push("", "⚠️ <b>Errors</b>");
+      for (const [t, e] of Object.entries(errors)) lines.push(`• ${t}: ${escapeHtml(e)}`);
+    }
+    await telegramCall("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "HTML" });
+  } catch (e: any) {
+    await telegramCall("sendMessage", { chat_id: chatId, text: `❌ Restore failed: ${e?.message ?? "unknown"}` });
+  }
 }
