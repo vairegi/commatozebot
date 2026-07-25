@@ -351,11 +351,11 @@ export async function tickBroadcasts(): Promise<{
       sent++;
       // notify creator DM
       try {
-        const okCount = res.targets.filter((t) => t.ok).length;
-        const failCount = res.targets.length - okCount;
         await telegramCall("sendMessage", {
           chat_id: b.created_by,
-          text: `📣 Scheduled broadcast sent.\n✅ ${okCount} delivered${failCount ? `\n❌ ${failCount} failed` : ""}`,
+          text: formatDeliveryReport(res.targets, res.status),
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
         });
       } catch { /* ignore */ }
     } catch (e) {
