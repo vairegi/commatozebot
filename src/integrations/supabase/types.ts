@@ -19,6 +19,7 @@ export type Database = {
           auto_delete_seconds: number | null
           awaiting_custom: string | null
           editing_broadcast_id: string | null
+          mode: string
           preview_text: string | null
           scheduled_at: string | null
           selected_chat_ids: number[]
@@ -32,6 +33,7 @@ export type Database = {
           auto_delete_seconds?: number | null
           awaiting_custom?: string | null
           editing_broadcast_id?: string | null
+          mode?: string
           preview_text?: string | null
           scheduled_at?: string | null
           selected_chat_ids?: number[]
@@ -45,6 +47,7 @@ export type Database = {
           auto_delete_seconds?: number | null
           awaiting_custom?: string | null
           editing_broadcast_id?: string | null
+          mode?: string
           preview_text?: string | null
           scheduled_at?: string | null
           selected_chat_ids?: number[]
@@ -106,6 +109,42 @@ export type Database = {
           },
         ]
       }
+      broadcast_templates: {
+        Row: {
+          created_at: string
+          id: string
+          mode: string
+          name: string
+          preview_text: string | null
+          source_chat_id: number
+          source_message_id: number
+          updated_at: string
+          user_id: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          mode?: string
+          name: string
+          preview_text?: string | null
+          source_chat_id: number
+          source_message_id: number
+          updated_at?: string
+          user_id: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          mode?: string
+          name?: string
+          preview_text?: string | null
+          source_chat_id?: number
+          source_message_id?: number
+          updated_at?: string
+          user_id?: number
+        }
+        Relationships: []
+      }
       broadcasts: {
         Row: {
           auto_delete_seconds: number | null
@@ -113,6 +152,7 @@ export type Database = {
           created_by: number
           created_by_name: string | null
           id: string
+          mode: string
           preview_text: string | null
           scheduled_at: string | null
           sent_at: string | null
@@ -127,6 +167,7 @@ export type Database = {
           created_by: number
           created_by_name?: string | null
           id?: string
+          mode?: string
           preview_text?: string | null
           scheduled_at?: string | null
           sent_at?: string | null
@@ -141,6 +182,7 @@ export type Database = {
           created_by?: number
           created_by_name?: string | null
           id?: string
+          mode?: string
           preview_text?: string | null
           scheduled_at?: string | null
           sent_at?: string | null
@@ -244,6 +286,7 @@ export type Database = {
           first_seen_at: string
           last_activity_at: string
           member_count: number | null
+          reactions_enabled: boolean
           rules: string | null
           title: string | null
           type: string | null
@@ -256,6 +299,7 @@ export type Database = {
           first_seen_at?: string
           last_activity_at?: string
           member_count?: number | null
+          reactions_enabled?: boolean
           rules?: string | null
           title?: string | null
           type?: string | null
@@ -268,6 +312,7 @@ export type Database = {
           first_seen_at?: string
           last_activity_at?: string
           member_count?: number | null
+          reactions_enabled?: boolean
           rules?: string | null
           title?: string | null
           type?: string | null
