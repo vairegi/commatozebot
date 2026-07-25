@@ -175,8 +175,10 @@ export async function restoreFromPayload(payload: BackupPayload): Promise<{
     let count = 0;
     for (let i = 0; i < rows.length; i += chunkSize) {
       const chunk = rows.slice(i, i + chunkSize);
-      const q = supabaseAdmin.from(t).upsert(chunk, conflict ? { onConflict: conflict } : undefined);
-      const { error } = await q;
+      const { error } = await (supabaseAdmin.from(t as any) as any).upsert(
+        chunk,
+        conflict ? { onConflict: conflict } : undefined,
+      );
       if (error) {
         errors[t] = error.message;
         break;
