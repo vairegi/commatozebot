@@ -1138,12 +1138,36 @@ async function handleChatListCommands(args: {
     const byId = new Map<number, any>((chats ?? []).map((c: any) => [Number(c.chat_id), c]));
     const emoji = listCmd === "adult" ? "🔞" : "📚";
     const header = `${emoji} <b>${listCmd === "adult" ? "Adult" : "Manga"} channels (${rows.length})</b>`;
-    const lines = rows.map((r: any, i: number) => {
-      const c = byId.get(Number(r.chat_id));
-      const title = c?.title || (c?.username ? `@${c.username}` : `Chat ${r.chat_id}`);
-      const uname = c?.username ? ` — @${c.username}` : "";
-      return `<b>${i + 1}.</b> ${escapeHtml(title)}${uname}\n<code>${r.chat_id}</code>`;
-    });
+    const lines = await Promise.all(
+      rows.map(async (r: any, i: number) => {
+        const c = byId.get(Number(r.chat_id));
+        const title = c?.title || (c?.username ? `@${c.username}` : `Chat ${r.chat_id}`);
+        let linkLine = "";
+        if (c?.username) {
+          linkLine = ` — @${c.username}`;
+        } else {
+          try {
+            const info = await telegramCall("getChat", { chat_id: Number(r.chat_id) });
+            let invite: string | undefined = info?.invite_link;
+            if (!invite) {
+              try {
+                const created = await telegramCall("exportChatInviteLink", {
+                  chat_id: Number(r.chat_id),
+                });
+                if (typeof created === "string") invite = created;
+              } catch (e) {
+                console.warn("exportChatInviteLink failed", r.chat_id, e);
+              }
+            }
+            if (invite) linkLine = ` — <a href="${invite}">invite link</a>`;
+            else linkLine = " — 🔒 private (no invite permission)";
+          } catch (e) {
+            console.warn("getChat failed", r.chat_id, e);
+          }
+        }
+        return `<b>${i + 1}.</b> ${escapeHtml(title)}${linkLine}\n<code>${r.chat_id}</code>`;
+      }),
+    );
     await send(`${header}\n\n${lines.join("\n\n")}`, {
       parse_mode: "HTML",
       disable_web_page_preview: true,
