@@ -780,7 +780,7 @@ async function handleChannelsCommand(args: {
 
   // Preserve DB order (oldest first, newest last)
   for (const e of entries) {
-    if (e) buckets[e.bucket].push(e.line);
+    if (e) buckets[e.bucket as "channel" | "supergroup" | "group"].push(e.line);
   }
 
   const numbered = (items: string[]) =>
