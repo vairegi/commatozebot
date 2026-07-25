@@ -654,6 +654,25 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 telegramCall,
                 supabaseAdmin,
               });
+            } else if (
+              cmd === "/adultchannels" ||
+              cmd === "/adultchannel" ||
+              cmd === "/mangachannels" ||
+              cmd === "/mangachannel" ||
+              cmd === "/addtolist" ||
+              cmd === "/removefromlist" ||
+              cmd === "/rmfromlist"
+            ) {
+              await handleChatListCommands({
+                cmd,
+                fromId: from.id,
+                fromName: from.first_name || from.username || `user ${from.id}`,
+                argText: text,
+                replyChatId: chat.id,
+                chatType: chat.type,
+                telegramCall,
+                supabaseAdmin,
+              });
             }
 
             // Auto-react to every message (including commands) in private DMs when enabled.
