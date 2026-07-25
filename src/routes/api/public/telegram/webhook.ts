@@ -260,44 +260,22 @@ async function handleTemplateCommands(args: {
       return;
     }
     const t = tpl as any;
-    // Seed a draft with the template as the source; user picks channels + timing next.
-    await supabaseAdmin.from("broadcast_drafts").upsert(
-      {
-        user_id: fromId,
-        step: "awaiting_channels",
+    const { startBroadcastFromTemplate } = await import("@/lib/broadcast-wizard.server");
+    await telegramCall("sendMessage", {
+      chat_id: replyChatId,
+      text: `📚 Loading template <b>${escapeHtml(name)}</b>…`,
+      parse_mode: "HTML",
+    });
+    await startBroadcastFromTemplate({
+      fromId,
+      chatId: replyChatId,
+      template: {
         source_chat_id: t.source_chat_id,
         source_message_id: t.source_message_id,
         preview_text: t.preview_text,
-        selected_chat_ids: [],
-        scheduled_at: null,
-        auto_delete_seconds: null,
-        editing_broadcast_id: null,
-        awaiting_custom: null,
-        mode: t.mode ?? "copy",
-        updated_at: new Date().toISOString(),
+        mode: t.mode,
       },
-      { onConflict: "user_id" },
-    );
-    // Kick the wizard into the channel picker by simulating the next-step prompt.
-    const { handleBroadcastCallback } = await import("@/lib/broadcast-wizard.server");
-    void handleBroadcastCallback;
-    // Simpler: just show the picker by emitting a fake callback flow — reuse promptChannels via a synthetic call.
-    // We call the wizard's exported entry indirectly by sending the user a tap-to-continue message.
-    await telegramCall("sendMessage", {
-      chat_id: replyChatId,
-      text: `📚 Loaded template <b>${escapeHtml(name)}</b>. Now use /post to continue — I'll reuse this content.`,
-      parse_mode: "HTML",
     });
-    // We actually already seeded step=awaiting_channels. Tell user to just pick channels via wizard message:
-    // Easiest: send a hint plus re-run /post logic to force channel picker.
-    const { handleBroadcastMessage } = await import("@/lib/broadcast-wizard.server");
-    // Send a synthetic no-op — the wizard only advances on new content in awaiting_content, so we instead
-    // trigger the picker via a fake command:
-    const { handleBroadcastCommand } = await import("@/lib/broadcast-wizard.server");
-    // Reset draft to force the flow: rewrite step=awaiting_content is wrong; better to directly prompt.
-    // Use a small trick: call handleBroadcastMessage with the original template message content is expensive;
-    // instead skip and instruct user.
-    void handleBroadcastMessage; void handleBroadcastCommand;
     return;
   }
 }
