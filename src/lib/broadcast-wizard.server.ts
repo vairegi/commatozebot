@@ -940,6 +940,12 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     await promptConfirm(fromId, chatId);
     return true;
   }
+  if (op === "bk" && draft) {
+    await saveDraft(fromId, { awaiting_custom: null });
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
+    await promptConfirm(fromId, chatId);
+    return true;
+  }
   if (op === "btp" && draft) {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: preset } = await supabaseAdmin
