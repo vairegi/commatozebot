@@ -258,6 +258,54 @@ export async function handleBroadcastMessage(args: {
     return true;
   }
 
+  if (draft.awaiting_custom === "buttons" && message.text) {
+    try {
+      const kb = parseButtonSpec(message.text);
+      await saveDraft(fromId, { reply_markup: { inline_keyboard: kb }, awaiting_custom: null });
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: `✅ Buttons attached (${kb.length} row${kb.length === 1 ? "" : "s"}):\n<pre>${escapeHtml(keyboardPreview(kb))}</pre>`,
+        parse_mode: "HTML",
+      });
+      await promptConfirm(fromId, chatId);
+    } catch (e: any) {
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: `❌ ${escapeHtml(e?.message ?? "invalid button spec")}\n\nSend again or tap 🔘 Buttons → Skip.`,
+        parse_mode: "HTML",
+      });
+    }
+    return true;
+  }
+
+  if (draft.awaiting_custom === "savebtn" && message.text) {
+    const raw = message.text;
+    const nl = raw.indexOf("\n");
+    const name = (nl === -1 ? raw : raw.slice(0, nl)).trim();
+    const spec = nl === -1 ? "" : raw.slice(nl + 1);
+    if (!name || !spec.trim()) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Send: first line = preset name, then button lines." });
+      return true;
+    }
+    try {
+      const kb = parseButtonSpec(spec);
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      await supabaseAdmin.from("broadcast_button_presets").upsert(
+        { user_id: fromId, name, buttons: { inline_keyboard: kb }, updated_at: new Date().toISOString() },
+        { onConflict: "user_id,name" },
+      );
+      await saveDraft(fromId, { awaiting_custom: null });
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: `✅ Saved preset <b>${escapeHtml(name)}</b>:\n<pre>${escapeHtml(keyboardPreview(kb))}</pre>`,
+        parse_mode: "HTML",
+      });
+    } catch (e: any) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ ${escapeHtml(e?.message ?? "invalid")}` });
+    }
+    return true;
+  }
+
   // Awaiting chat IDs typed manually
   if (draft.awaiting_custom === "chatid" && message.text) {
     const ids = Array.from(
