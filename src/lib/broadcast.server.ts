@@ -185,6 +185,58 @@ export function fmtDuration(seconds: number): string {
   return h ? `${d}d ${h}h` : `${d}d`;
 }
 
+/**
+ * Delete every delivered message of a broadcast across all target channels.
+ * Called by /nuke after super-admin confirmation.
+ */
+export async function runNuke(args: { broadcastId: string; fromId: number }): Promise<{ deleted: number; failed: number }> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  // Verify caller is super admin.
+  const { data: admin } = await supabaseAdmin
+    .from("telegram_bot_admins")
+    .select("role")
+    .eq("user_id", args.fromId)
+    .maybeSingle();
+  if (!admin || (admin as any).role !== "super_admin") {
+    throw new Error("only super admins can nuke");
+  }
+
+  const { data: bc } = await supabaseAdmin
+    .from("broadcasts")
+    .select("id")
+    .eq("id", args.broadcastId)
+    .maybeSingle();
+  if (!bc) throw new Error("broadcast not found");
+
+  const { data: targets } = await supabaseAdmin
+    .from("broadcast_targets")
+    .select("id, chat_id, sent_message_id, status")
+    .eq("broadcast_id", args.broadcastId)
+    .not("sent_message_id", "is", null)
+    .neq("status", "deleted");
+
+  let deleted = 0;
+  let failed = 0;
+  for (const t of (targets as any[]) ?? []) {
+    try {
+      await telegramCall("deleteMessage", { chat_id: t.chat_id, message_id: t.sent_message_id });
+      await supabaseAdmin
+        .from("broadcast_targets")
+        .update({ status: "deleted", deleted_at: new Date().toISOString(), delete_at: null })
+        .eq("id", t.id);
+      deleted++;
+    } catch (e: any) {
+      await supabaseAdmin
+        .from("broadcast_targets")
+        .update({ status: "delete_failed", error: e?.message ?? String(e) })
+        .eq("id", t.id);
+      failed++;
+    }
+  }
+  return { deleted, failed };
+}
+
 export interface SendResultTarget {
   chat_id: number;
   chat_title?: string | null;
