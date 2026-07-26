@@ -211,6 +211,57 @@ export async function handleBroadcastMessage(args: {
     return true;
   }
 
+  // Awaiting chat IDs typed manually
+  if (draft.awaiting_custom === "chatid" && message.text) {
+    const ids = Array.from(
+      new Set(
+        message.text
+          .split(/[\s,]+/)
+          .map((s: string) => s.trim())
+          .filter(Boolean)
+          .map((s: string) => Number(s))
+          .filter((n: number) => Number.isFinite(n) && n !== 0),
+      ),
+    ) as number[];
+    if (!ids.length) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Send one or more chat IDs (space/comma separated). Example: `-1001234567890`", parse_mode: "Markdown" });
+      return true;
+    }
+    const bot = await getBotIdentity();
+    const ok: number[] = [];
+    const bad: Array<{ id: number; reason: string }> = [];
+    await Promise.all(ids.map(async (id) => {
+      try {
+        const bs = await getChatMemberStatus(id, bot.id);
+        if (bs === "administrator" || bs === "creator") ok.push(id);
+        else bad.push({ id, reason: `bot status: ${bs ?? "unknown"}` });
+      } catch (e: any) {
+        bad.push({ id, reason: e?.message ?? "lookup failed" });
+      }
+    }));
+    if (!ok.length) {
+      const lines = bad.map((b) => `  • <code>${b.id}</code> — ${escapeHtml(b.reason)}`).join("\n");
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ None of those work:\n${lines}\n\nSend valid IDs or /cancel.`, parse_mode: "HTML" });
+      return true;
+    }
+    // Merge with any already-selected
+    const merged = Array.from(new Set([...(draft.selected_chat_ids ?? []), ...ok]));
+    await saveDraft(fromId, { selected_chat_ids: merged, awaiting_custom: null });
+    const skipped = bad.length ? `\n\n⚠️ Skipped:\n${bad.map((b) => `  • <code>${b.id}</code> — ${escapeHtml(b.reason)}`).join("\n")}` : "";
+    await telegramCall("sendMessage", {
+      chat_id: chatId,
+      text: `✅ Added ${ok.length} chat${ok.length === 1 ? "" : "s"} (total selected: <b>${merged.length}</b>).${skipped}\n\nTap ➡️ Next to continue, or send more IDs.`,
+      parse_mode: "HTML",
+      reply_markup: {
+        inline_keyboard: [[
+          { text: `➡️ Next (${merged.length})`, callback_data: "bc:next" },
+          { text: "❌ Cancel", callback_data: "bc:x" },
+        ]],
+      },
+    });
+    return true;
+  }
+
   // Awaiting content
   if (draft.step === "awaiting_content") {
     // Any message with an id is fine
@@ -313,6 +364,9 @@ async function renderChannelPicker(
   ]);
   rows.push([
     { text: "🔞+📚 Adult & Manga", callback_data: "bc:pre:both" },
+  ]);
+  rows.push([
+    { text: "🎯 Pick by ID", callback_data: "bc:byid" },
   ]);
   rows.push([
     { text: "❌ Cancel", callback_data: "bc:x" },
@@ -482,6 +536,9 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
       { text: "🔞+📚 Adult & Manga", callback_data: "bc:pre:both" },
     ]);
     rows.push([
+      { text: "🎯 Pick by ID", callback_data: "bc:byid" },
+    ]);
+    rows.push([
       { text: "❌ Cancel", callback_data: "bc:x" },
       { text: `➡️ Next (${next.length})`, callback_data: "bc:next" },
     ]);
@@ -541,6 +598,18 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     await telegramCall("answerCallbackQuery", {
       callback_query_id: cq.id,
       text: `Selected ${eligible.length} chat${eligible.length === 1 ? "" : "s"} (${categories.join(" & ")}).`,
+    });
+    return true;
+  }
+
+  if (op === "byid" && draft) {
+    await saveDraft(fromId, { awaiting_custom: "chatid" });
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
+    await telegramCall("sendMessage", {
+      chat_id: chatId,
+      text:
+        "🎯 <b>Send chat ID(s)</b>\n\nPaste one or more Telegram chat IDs (space or comma separated). I'll verify I'm admin in each.\n\nExample: <code>-1001234567890 -1009876543210</code>",
+      parse_mode: "HTML",
     });
     return true;
   }
