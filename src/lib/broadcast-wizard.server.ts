@@ -405,10 +405,13 @@ async function promptConfirm(fromId: number, chatId: number) {
       `Delete: ${del}`,
     parse_mode: "HTML",
     reply_markup: {
-      inline_keyboard: [[
-        { text: "✅ Confirm", callback_data: "bc:go" },
-        { text: "❌ Cancel", callback_data: "bc:x" },
-      ]],
+      inline_keyboard: [
+        [{ text: "👁 Preview to me", callback_data: "bc:pv" }],
+        [
+          { text: "✅ Confirm", callback_data: "bc:go" },
+          { text: "❌ Cancel", callback_data: "bc:x" },
+        ],
+      ],
     },
   });
 }
@@ -610,6 +613,53 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
   if (op === "go" && draft) {
     await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Submitting…" });
     await commitDraft(fromId, fromName, chatId);
+    return true;
+  }
+
+  // Preview: copy source message to the admin's DM so they see exactly what channels will get.
+  if (op === "pv" && draft) {
+    if (!draft.source_chat_id || !draft.source_message_id) {
+      await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "No content yet.", show_alert: true });
+      return true;
+    }
+    try {
+      await telegramCall("sendMessage", { chat_id: fromId, text: "👁 <b>Preview</b> — this is exactly what channels will receive:", parse_mode: "HTML" });
+      await telegramCall("copyMessage", {
+        chat_id: fromId,
+        from_chat_id: draft.source_chat_id,
+        message_id: draft.source_message_id,
+      });
+      await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Preview sent" });
+    } catch (e: any) {
+      await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: `Preview failed: ${e?.message ?? "unknown"}`, show_alert: true });
+    }
+    return true;
+  }
+
+  // /nuke confirmation
+  if (op === "nuke") {
+    const { runNuke } = await import("@/lib/broadcast.server");
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Nuking…" });
+    try {
+      const res = await runNuke({ broadcastId: arg, fromId });
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: `☢️ <b>Nuke complete</b>\n✅ Deleted: <b>${res.deleted}</b>\n❌ Failed: <b>${res.failed}</b>`,
+        parse_mode: "HTML",
+      });
+    } catch (e: any) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ Nuke failed: ${e?.message ?? e}` });
+    }
+    if (cq.message?.message_id) {
+      try { await telegramCall("editMessageReplyMarkup", { chat_id: chatId, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] } }); } catch { /* ignore */ }
+    }
+    return true;
+  }
+  if (op === "nukex") {
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Cancelled" });
+    if (cq.message?.message_id) {
+      try { await telegramCall("editMessageText", { chat_id: chatId, message_id: cq.message.message_id, text: "☢️ Nuke cancelled." }); } catch { /* ignore */ }
+    }
     return true;
   }
 
