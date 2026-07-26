@@ -705,13 +705,14 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
             if (consumed) return Response.json({ ok: true });
 
             // Broadcast commands
-            if (cmd === "/post" || cmd === "/crosspost" || cmd === "/broadcasts" || cmd === "/cancel") {
+            if (cmd === "/post" || cmd === "/crosspost" || cmd === "/broadcasts" || cmd === "/cancel" || cmd === "/editpost") {
               const handled = await handleBroadcastCommand({
                 cmd,
                 fromId: from.id,
                 fromName: from.first_name || from.username || `user ${from.id}`,
                 chatId: chat.id,
                 chatType: chat.type,
+                argText: text,
               });
               if (handled) return Response.json({ ok: true });
             }
