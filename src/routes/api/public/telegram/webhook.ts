@@ -705,7 +705,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
             if (consumed) return Response.json({ ok: true });
 
             // Broadcast commands
-            if (cmd === "/post" || cmd === "/crosspost" || cmd === "/broadcasts" || cmd === "/cancel" || cmd === "/editpost") {
+            if (cmd === "/post" || cmd === "/crosspost" || cmd === "/broadcasts" || cmd === "/cancel" || cmd === "/editpost" || cmd === "/savebtn" || cmd === "/buttons" || cmd === "/delbtn") {
               const handled = await handleBroadcastCommand({
                 cmd,
                 fromId: from.id,
@@ -736,6 +736,9 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "/crosspost — same wizard but forwards with the 'forwarded from' header\n" +
                   "/broadcasts — recent broadcasts, cancel pending, cancel auto-delete\n" +
                   "/editpost <broadcast_id> — replace a sent broadcast's content across every target channel\n" +
+                  "/buttons — list your saved button presets\n" +
+                  "/savebtn <name> — save an inline-button preset (URL buttons under posts)\n" +
+                  "/delbtn <name> — delete a button preset\n" +
                   "/cancel — abort current wizard\n\n" +
                   "☢️ Nuke (super admins, DM):\n" +
                   "/nuke — delete your latest broadcast from every channel it went to\n" +
