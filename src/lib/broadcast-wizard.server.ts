@@ -7,6 +7,8 @@ import {
   fmtDuration,
   executeBroadcast,
   formatDeliveryReport,
+  runEditBroadcast,
+  formatEditReport,
 } from "./broadcast.server";
 
 type Admin = { user_id: number; role: string };
@@ -65,9 +67,16 @@ export async function handleBroadcastCommand(args: {
   fromName: string;
   chatId: number;
   chatType: string;
+  argText?: string;
 }): Promise<boolean> {
-  const { cmd, fromId, fromName, chatId, chatType } = args;
-  if (cmd !== "/post" && cmd !== "/crosspost" && cmd !== "/broadcasts" && cmd !== "/cancel") return false;
+  const { cmd, fromId, fromName, chatId, chatType, argText } = args;
+  if (
+    cmd !== "/post" &&
+    cmd !== "/crosspost" &&
+    cmd !== "/broadcasts" &&
+    cmd !== "/cancel" &&
+    cmd !== "/editpost"
+  ) return false;
 
   const admin = await getBotAdmin(fromId);
   if (!admin) {
@@ -108,6 +117,7 @@ export async function handleBroadcastCommand(args: {
       auto_delete_seconds: null,
       editing_broadcast_id: null,
       awaiting_custom: null,
+      source_message_json: null,
       mode,
     });
     const label = mode === "forward"
@@ -124,6 +134,21 @@ export async function handleBroadcastCommand(args: {
 
   if (cmd === "/broadcasts") {
     await listBroadcasts(fromId, chatId, fromName);
+    return true;
+  }
+
+  if (cmd === "/editpost") {
+    // /editpost <broadcast_id>
+    const rest = (argText ?? "").trim().split(/\s+/).slice(1).join(" ").trim();
+    if (!rest) {
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: "Usage: <code>/editpost &lt;broadcast_id&gt;</code>\n\nOr use /broadcasts and tap ✏️ Edit on a sent post.",
+        parse_mode: "HTML",
+      });
+      return true;
+    }
+    await startEditFlow(fromId, chatId, rest);
     return true;
   }
   return false;
@@ -155,7 +180,10 @@ async function listBroadcasts(fromId: number, chatId: number, _fromName: string)
     lines.push(`• <b>${r.status}</b> — ${when}\n   ${escapeHtml(preview)}`);
     const row: any[] = [{ text: `👁 ${r.status}`, callback_data: `bc:v:${r.id}` }];
     if (r.status === "pending") row.push({ text: "🗑 Cancel", callback_data: `bc:cx:${r.id}` });
-    if (r.status === "sent" || r.status === "partial") row.push({ text: "🚫 Cancel auto-delete", callback_data: `bc:cd:${r.id}` });
+    if (r.status === "sent" || r.status === "partial") {
+      row.push({ text: "✏️ Edit", callback_data: `bc:ed:${r.id}` });
+      row.push({ text: "🚫 Cancel auto-delete", callback_data: `bc:cd:${r.id}` });
+    }
     keyboard.push(row);
   }
   await telegramCall("sendMessage", {
@@ -277,8 +305,115 @@ export async function handleBroadcastMessage(args: {
     return true;
   }
 
+  // Awaiting new content for an edit
+  if (draft.step === "awaiting_edit_content" && draft.editing_broadcast_id) {
+    if (!message.message_id || !message.chat?.id) return true;
+    await saveDraft(fromId, {
+      source_chat_id: message.chat.id,
+      source_message_id: message.message_id,
+      preview_text: previewOf(message),
+      source_message_json: message,
+      step: "confirm_edit",
+    });
+    await promptConfirmEdit(fromId, chatId);
+    return true;
+  }
+
   // Any other text while draft exists but no prompt — ignore (let normal commands run)
   return false;
+}
+
+/** Begin an edit-after-send flow for an existing broadcast owned by fromId (or any, for super admins). */
+async function startEditFlow(fromId: number, chatId: number, broadcastId: string) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: bc } = await supabaseAdmin
+    .from("broadcasts")
+    .select("id, created_by, status, preview_text")
+    .eq("id", broadcastId)
+    .maybeSingle();
+  if (!bc) {
+    await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Broadcast not found." });
+    return;
+  }
+  const b = bc as any;
+  if (b.created_by !== fromId) {
+    const { data: admin } = await supabaseAdmin
+      .from("telegram_bot_admins")
+      .select("role")
+      .eq("user_id", fromId)
+      .maybeSingle();
+    if (!admin || (admin as any).role !== "super_admin") {
+      await telegramCall("sendMessage", { chat_id: chatId, text: "❌ You can only edit your own broadcasts." });
+      return;
+    }
+  }
+  if (b.status !== "sent" && b.status !== "partial") {
+    await telegramCall("sendMessage", {
+      chat_id: chatId,
+      text: `❌ Only sent broadcasts can be edited (this one is <b>${b.status}</b>). Use /broadcasts to cancel it instead.`,
+      parse_mode: "HTML",
+    });
+    return;
+  }
+  const { count } = await supabaseAdmin
+    .from("broadcast_targets")
+    .select("id", { count: "exact", head: true })
+    .eq("broadcast_id", broadcastId)
+    .not("sent_message_id", "is", null)
+    .in("status", ["sent", "delete_failed"]);
+  if (!count) {
+    await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Nothing to edit — no delivered targets left (they may have been auto-deleted)." });
+    return;
+  }
+  await saveDraft(fromId, {
+    step: "awaiting_edit_content",
+    editing_broadcast_id: broadcastId,
+    source_chat_id: null,
+    source_message_id: null,
+    preview_text: null,
+    selected_chat_ids: [],
+    scheduled_at: null,
+    auto_delete_seconds: null,
+    awaiting_custom: null,
+    mode: "copy",
+  });
+  await telegramCall("sendMessage", {
+    chat_id: chatId,
+    text:
+      `✏️ <b>Edit broadcast</b>\n\nSend or forward the <b>new</b> message. I'll replace it in all ${count} delivered target${count === 1 ? "" : "s"}.\n\n` +
+      `Supported: text, photo, video, animation, document, audio. The new content type must match the original (Telegram won't turn a text post into media, or swap photo↔video, etc.).\n\n` +
+      `Use /cancel to abort.`,
+    parse_mode: "HTML",
+  });
+}
+
+async function promptConfirmEdit(fromId: number, chatId: number) {
+  const d = await getDraft(fromId);
+  if (!d) return;
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { count } = await supabaseAdmin
+    .from("broadcast_targets")
+    .select("id", { count: "exact", head: true })
+    .eq("broadcast_id", d.editing_broadcast_id)
+    .not("sent_message_id", "is", null)
+    .in("status", ["sent", "delete_failed"]);
+  await telegramCall("sendMessage", {
+    chat_id: chatId,
+    text:
+      `📋 <b>Confirm edit</b>\n\n` +
+      `New content: <i>${escapeHtml((d.preview_text ?? "").slice(0, 200))}</i>\n\n` +
+      `Will replace the message in <b>${count ?? 0}</b> target${count === 1 ? "" : "s"}.`,
+    parse_mode: "HTML",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "👁 Preview to me", callback_data: "bc:pv" }],
+        [
+          { text: "✅ Apply edit", callback_data: "bc:egox" },
+          { text: "❌ Cancel", callback_data: "bc:x" },
+        ],
+      ],
+    },
+  });
 }
 
 async function promptChannels(fromId: number, chatId: number) {
@@ -743,6 +878,52 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
   }
   if (op === "cd") {
     await cancelAutoDeletes(fromId, chatId, arg, cq.id);
+    return true;
+  }
+
+  // Edit-after-send: start
+  if (op === "ed") {
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
+    await startEditFlow(fromId, chatId, arg);
+    return true;
+  }
+
+  // Edit-after-send: apply
+  if (op === "egox" && draft?.editing_broadcast_id) {
+    if (!draft.source_chat_id || !draft.source_message_id) {
+      await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "No new content yet.", show_alert: true });
+      return true;
+    }
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Applying edit…" });
+    // Fetch the new source message details from Telegram by copying it into DM — no; we have it stored.
+    // We need the full Message object to build InputMedia. Re-fetch by looking at the last stored preview isn't enough,
+    // so we instead read the message via a self-copy trick: forwardMessage into DM would re-send.
+    // Simpler: the wizard captured the message directly; reconstruct file_ids by reading the raw update — but the draft
+    // only stored ids. We hydrate by using getChat / but Bot API has no getMessage. So we asked the admin to send in DM;
+    // that message already lives at source_chat_id/source_message_id. Re-fetch via a forwardMessage→ourselves? That
+    // creates a new message. Instead, we store the raw message in the draft row.
+    const newSource = draft.source_message_json ?? null;
+    if (!newSource) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Lost the new content — please /editpost again." });
+      await clearDraft(fromId);
+      return true;
+    }
+    try {
+      const res = await runEditBroadcast({
+        broadcastId: draft.editing_broadcast_id,
+        fromId,
+        newSource,
+      });
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: formatEditReport(res),
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      });
+    } catch (e: any) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ Edit failed: ${e?.message ?? e}` });
+    }
+    await clearDraft(fromId);
     return true;
   }
 

@@ -73,6 +73,7 @@ export type Database = {
           selected_chat_ids: number[]
           source_chat_id: number | null
           source_message_id: number | null
+          source_message_json: Json | null
           step: string
           updated_at: string
           user_id: number
@@ -87,6 +88,7 @@ export type Database = {
           selected_chat_ids?: number[]
           source_chat_id?: number | null
           source_message_id?: number | null
+          source_message_json?: Json | null
           step?: string
           updated_at?: string
           user_id: number
@@ -101,6 +103,7 @@ export type Database = {
           selected_chat_ids?: number[]
           source_chat_id?: number | null
           source_message_id?: number | null
+          source_message_json?: Json | null
           step?: string
           updated_at?: string
           user_id?: number

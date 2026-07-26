@@ -1,0 +1,1 @@
+ALTER TABLE public.broadcast_drafts ADD COLUMN IF NOT EXISTS source_message_json jsonb;
