@@ -602,10 +602,6 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     return true;
   }
 
-  if (op === "all" && draft) {
-    // handled below
-  }
-
   if (op === "byid" && draft) {
     await saveDraft(fromId, { awaiting_custom: "chatid" });
     await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
