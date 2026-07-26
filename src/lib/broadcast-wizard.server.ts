@@ -311,6 +311,7 @@ export async function handleBroadcastMessage(args: {
       source_chat_id: message.chat.id,
       source_message_id: message.message_id,
       preview_text: previewOf(message),
+      source_message_json: message,
       step: "confirm_edit",
     });
     await promptConfirmEdit(fromId, chatId);
