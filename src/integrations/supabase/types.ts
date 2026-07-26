@@ -14,6 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      bot_admin_events: {
+        Row: {
+          actor_id: number | null
+          actor_name: string | null
+          actor_username: string | null
+          chat_id: number
+          chat_title: string | null
+          chat_type: string | null
+          chat_username: string | null
+          created_at: string
+          deep_link: string | null
+          id: string
+          new_status: string | null
+          old_status: string | null
+          reason: string | null
+        }
+        Insert: {
+          actor_id?: number | null
+          actor_name?: string | null
+          actor_username?: string | null
+          chat_id: number
+          chat_title?: string | null
+          chat_type?: string | null
+          chat_username?: string | null
+          created_at?: string
+          deep_link?: string | null
+          id?: string
+          new_status?: string | null
+          old_status?: string | null
+          reason?: string | null
+        }
+        Update: {
+          actor_id?: number | null
+          actor_name?: string | null
+          actor_username?: string | null
+          chat_id?: number
+          chat_title?: string | null
+          chat_type?: string | null
+          chat_username?: string | null
+          created_at?: string
+          deep_link?: string | null
+          id?: string
+          new_status?: string | null
+          old_status?: string | null
+          reason?: string | null
+        }
+        Relationships: []
+      }
       broadcast_drafts: {
         Row: {
           auto_delete_seconds: number | null

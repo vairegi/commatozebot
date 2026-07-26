@@ -457,6 +457,24 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 `Reason: ${reason}\n` +
                 `By: ${escapeHtml(actorName)}` +
                 (deepLink ? `\n\n🔗 <a href="${deepLink}">Open chat</a> to restore admin rights` : "");
+              // Persist event for the admin log page
+              try {
+                await supabaseAdmin.from("bot_admin_events").insert({
+                  chat_id: c.id,
+                  chat_title: chatTitle,
+                  chat_username: c.username ?? null,
+                  chat_type: c.type ?? null,
+                  old_status: oldStatus ?? null,
+                  new_status: newStatus ?? null,
+                  reason,
+                  actor_id: actor?.id ?? null,
+                  actor_name: actorName,
+                  actor_username: actor?.username ?? null,
+                  deep_link: deepLink,
+                });
+              } catch (err) {
+                console.warn("bot_admin_events insert failed", err);
+              }
               const { data: admins } = await supabaseAdmin
                 .from("telegram_bot_admins")
                 .select("user_id");

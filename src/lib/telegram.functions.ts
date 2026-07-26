@@ -13,6 +13,18 @@ export const listChats = createServerFn({ method: "GET" })
     return data ?? [];
   });
 
+export const listBotAdminEvents = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase
+      .from("bot_admin_events")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
 export const getChat = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { chatId: number }) => z.object({ chatId: z.number() }).parse(d))
