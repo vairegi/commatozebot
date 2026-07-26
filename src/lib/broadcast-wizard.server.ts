@@ -315,6 +315,9 @@ async function renderChannelPicker(
     { text: "🔞+📚 Adult & Manga", callback_data: "bc:pre:both" },
   ]);
   rows.push([
+    { text: "🎯 Pick by ID", callback_data: "bc:byid" },
+  ]);
+  rows.push([
     { text: "❌ Cancel", callback_data: "bc:x" },
     { text: `➡️ Next (${selected.length})`, callback_data: "bc:next" },
   ]);
@@ -480,6 +483,9 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     ]);
     rows.push([
       { text: "🔞+📚 Adult & Manga", callback_data: "bc:pre:both" },
+    ]);
+    rows.push([
+      { text: "🎯 Pick by ID", callback_data: "bc:byid" },
     ]);
     rows.push([
       { text: "❌ Cancel", callback_data: "bc:x" },
