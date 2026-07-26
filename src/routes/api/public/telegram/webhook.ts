@@ -397,7 +397,9 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
         if (myMember?.chat?.id) {
           const c = myMember.chat;
           const newStatus: string | undefined = myMember.new_chat_member?.status;
+          const oldStatus: string | undefined = myMember.old_chat_member?.status;
           const isAdmin = newStatus === "administrator" || newStatus === "creator";
+          const wasAdmin = oldStatus === "administrator" || oldStatus === "creator";
           await supabaseAdmin.from("telegram_chats").upsert(
             {
               chat_id: c.id,
@@ -420,6 +422,47 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               .eq("chat_id", c.id);
           } catch (e) {
             console.warn("bot_status columns not yet migrated", e);
+          }
+
+          // Alert bot admins when bot loses admin rights or is removed/kicked from a chat
+          if (wasAdmin && !isAdmin) {
+            try {
+              const actor = myMember.from;
+              const actorName = actor
+                ? [actor.first_name, actor.last_name].filter(Boolean).join(" ") ||
+                  actor.username || `ID ${actor.id}`
+                : "unknown";
+              const chatTitle = c.title ?? c.username ?? `Chat ${c.id}`;
+              const chatLabel = c.username ? `@${c.username}` : `<code>${c.id}</code>`;
+              let reason = "demoted from admin";
+              if (newStatus === "left") reason = "removed / left the chat";
+              else if (newStatus === "kicked") reason = "banned / kicked";
+              else if (newStatus === "member") reason = "demoted to regular member";
+              else if (newStatus === "restricted") reason = "restricted";
+              const text =
+                `⚠️ <b>Admin rights lost</b>\n\n` +
+                `Chat: <b>${escapeHtml(chatTitle)}</b> (${chatLabel})\n` +
+                `Type: ${c.type}\n` +
+                `Was: <code>${oldStatus}</code> → Now: <code>${newStatus ?? "unknown"}</code>\n` +
+                `Reason: ${reason}\n` +
+                `By: ${escapeHtml(actorName)}`;
+              const { data: admins } = await supabaseAdmin
+                .from("telegram_bot_admins")
+                .select("user_id");
+              for (const a of admins ?? []) {
+                try {
+                  await telegramCall("sendMessage", {
+                    chat_id: a.user_id,
+                    text,
+                    parse_mode: "HTML",
+                  });
+                } catch (err) {
+                  console.warn("alert DM failed", a.user_id, err);
+                }
+              }
+            } catch (e) {
+              console.error("admin-loss alert failed", e);
+            }
           }
           return Response.json({ ok: true });
         }
