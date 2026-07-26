@@ -704,6 +704,8 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 chatType: chat.type,
                 telegramCall,
                 supabaseAdmin,
+                getBotIdentity,
+                getChatMemberStatus,
               });
             }
 
@@ -1125,8 +1127,10 @@ async function handleChatListCommands(args: {
   chatType: string;
   telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
   supabaseAdmin: any;
+  getBotIdentity: () => Promise<{ id: number; username?: string }>;
+  getChatMemberStatus: (chatId: number, userId: number) => Promise<string | null>;
 }) {
-  const { cmd, fromId, fromName, argText, replyChatId, chatType, telegramCall, supabaseAdmin } = args;
+  const { cmd, fromId, fromName, argText, replyChatId, chatType, telegramCall, supabaseAdmin, getBotIdentity, getChatMemberStatus } = args;
   const send = (text: string, extra: Record<string, unknown> = {}) =>
     telegramCall("sendMessage", { chat_id: replyChatId, text, ...extra });
 
@@ -1159,16 +1163,33 @@ async function handleChatListCommands(args: {
       );
       return;
     }
-    const ids = rows.map((r: any) => Number(r.chat_id));
+    const bot = await getBotIdentity();
+    const adminChecks = await Promise.all(
+      rows.map(async (r: any) => {
+        const status = await getChatMemberStatus(Number(r.chat_id), bot.id).catch(() => null);
+        return status === "administrator" || status === "creator";
+      }),
+    );
+    const activeRows = rows.filter((_: any, i: number) => adminChecks[i]);
+    const skipped = rows.length - activeRows.length;
+    if (!activeRows.length) {
+      await send(
+        `📭 I'm no longer admin in any channel on the ${listCmd} list (${skipped} skipped).\nRemove them with /removefromlist ${listCmd} <chat_id>`,
+      );
+      return;
+    }
+    const ids = activeRows.map((r: any) => Number(r.chat_id));
     const { data: chats } = await supabaseAdmin
       .from("telegram_chats")
       .select("chat_id, title, username, type")
       .in("chat_id", ids);
     const byId = new Map<number, any>((chats ?? []).map((c: any) => [Number(c.chat_id), c]));
     const emoji = listCmd === "adult" ? "🔞" : "📚";
-    const header = `${emoji} <b>${listCmd === "adult" ? "Adult" : "Manga"} channels (${rows.length})</b>`;
+    const header =
+      `${emoji} <b>${listCmd === "adult" ? "Adult" : "Manga"} channels (${activeRows.length})</b>` +
+      (skipped ? `\n<i>${skipped} hidden — bot is no longer admin.</i>` : "");
     const lines = await Promise.all(
-      rows.map(async (r: any, i: number) => {
+      activeRows.map(async (r: any, i: number) => {
         const c = byId.get(Number(r.chat_id));
         const title = c?.title || (c?.username ? `@${c.username}` : `Chat ${r.chat_id}`);
         let url: string | undefined;
