@@ -706,6 +706,8 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               await handleReactToggle({ fromId: from.id, argText: text, chat, telegramCall, supabaseAdmin });
             } else if (cmd === "/comment") {
               await handleComment({ fromId: from.id, argText: text, replyChatId: chat.id, telegramCall, supabaseAdmin });
+            } else if (cmd === "/nuke") {
+              await handleNukeCommand({ fromId: from.id, argText: text, replyChatId: chat.id, telegramCall, supabaseAdmin });
             } else if (cmd === "/backup") {
               await handleBackupCommand({ fromId: from.id, chatId: chat.id, chatType: chat.type, telegramCall, supabaseAdmin });
             } else if (cmd === "/restore") {
