@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, redirect, Link, useRouter } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
-import { Bot, LayoutDashboard, LogOut } from "lucide-react";
+import { AlertTriangle, Bot, LayoutDashboard, LogOut } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -29,6 +29,9 @@ function Shell() {
           <nav className="flex items-center gap-4 text-sm">
             <Link to="/dashboard" className="flex items-center gap-1 hover:text-primary">
               <LayoutDashboard className="h-4 w-4" /> Chats
+            </Link>
+            <Link to="/bot-events" className="flex items-center gap-1 hover:text-primary">
+              <AlertTriangle className="h-4 w-4" /> Admin events
             </Link>
             <button onClick={signOut} className="flex items-center gap-1 text-muted-foreground hover:text-foreground">
               <LogOut className="h-4 w-4" /> Sign out
