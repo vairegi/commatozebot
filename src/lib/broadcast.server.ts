@@ -3,6 +3,49 @@ import { telegramCall, buildMessageLink } from "./telegram.server";
 
 const IST_OFFSET_MIN = 330; // +05:30
 
+// ================== Inline button parsing ==================
+
+export type InlineButton = { text: string; url: string };
+export type InlineKeyboard = InlineButton[][];
+
+/**
+ * Parse a user-authored button spec into a Telegram inline_keyboard.
+ * - Newlines separate rows
+ * - `|` splits buttons within a row
+ * - Each button is `Label - https://url` (first ` - ` separates)
+ * Blank lines and lines starting with `#` are ignored.
+ * Returns null with an error message string via thrown Error on invalid input.
+ */
+export function parseButtonSpec(input: string): InlineKeyboard {
+  const rows: InlineKeyboard = [];
+  const lines = input.split(/\r?\n/);
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const cells = line.split("|").map((c) => c.trim()).filter(Boolean);
+    const row: InlineButton[] = [];
+    for (const cell of cells) {
+      const idx = cell.search(/\s-\s|\s—\s/);
+      if (idx < 0) throw new Error(`Bad button "${cell}" — use "Label - https://url"`);
+      const label = cell.slice(0, idx).trim();
+      const url = cell.slice(idx + 3).trim();
+      if (!label) throw new Error(`Empty label in "${cell}"`);
+      if (!/^https?:\/\/|^tg:\/\//i.test(url)) throw new Error(`Invalid URL "${url}" — must start with http(s):// or tg://`);
+      if (label.length > 64) throw new Error(`Label too long (max 64): "${label}"`);
+      row.push({ text: label, url });
+    }
+    if (row.length) rows.push(row);
+  }
+  if (!rows.length) throw new Error("No buttons found.");
+  if (rows.length > 10) throw new Error("Too many rows (max 10).");
+  for (const r of rows) if (r.length > 8) throw new Error("Too many buttons in a row (max 8).");
+  return rows;
+}
+
+export function keyboardPreview(kb: InlineKeyboard): string {
+  return kb.map((row) => row.map((b) => `[${b.text}]`).join(" ")).join("\n");
+}
+
 /** Return current time as a Date represented in IST wall-clock via component math. */
 function nowIST(): Date {
   const now = new Date();
@@ -256,7 +299,7 @@ export async function executeBroadcast(broadcastId: string): Promise<{
 
   const { data: bc, error: bcErr } = await supabaseAdmin
     .from("broadcasts")
-    .select("id, source_chat_id, source_message_id, auto_delete_seconds, status, mode")
+    .select("id, source_chat_id, source_message_id, auto_delete_seconds, status, mode, reply_markup")
     .eq("id", broadcastId)
     .maybeSingle();
   if (bcErr || !bc) throw new Error(`broadcast not found: ${broadcastId}`);
@@ -286,16 +329,21 @@ export async function executeBroadcast(broadcastId: string): Promise<{
   }
 
   const method = (bc as any).mode === "forward" ? "forwardMessage" : "copyMessage";
+  const replyMarkup = (bc as any).reply_markup ?? null;
+  // forwardMessage doesn't accept reply_markup — force copy when buttons are attached
+  const effectiveMethod = replyMarkup ? "copyMessage" : method;
 
   const results: SendResultTarget[] = [];
   const nowMs = Date.now();
   for (const t of targets ?? []) {
     try {
-      const res = await telegramCall(method, {
+      const payload: Record<string, any> = {
         chat_id: t.chat_id,
         from_chat_id: bc.source_chat_id,
         message_id: bc.source_message_id,
-      });
+      };
+      if (replyMarkup) payload.reply_markup = replyMarkup;
+      const res = await telegramCall(effectiveMethod, payload);
       const mid = res?.message_id as number | undefined;
       const deleteAt = bc.auto_delete_seconds
         ? new Date(nowMs + bc.auto_delete_seconds * 1000).toISOString()
