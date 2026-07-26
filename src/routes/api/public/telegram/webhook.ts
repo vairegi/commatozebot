@@ -356,6 +356,81 @@ async function handleComment(args: {
   }
 }
 
+async function handleNukeCommand(args: {
+  fromId: number;
+  argText: string;
+  replyChatId: number;
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  supabaseAdmin: any;
+}) {
+  const { fromId, argText, replyChatId, telegramCall, supabaseAdmin } = args;
+  const { data: admin } = await supabaseAdmin
+    .from("telegram_bot_admins")
+    .select("role")
+    .eq("user_id", fromId)
+    .maybeSingle();
+  if (!admin || admin.role !== "super_admin") {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: "❌ Only super admins can use /nuke." });
+    return;
+  }
+
+  const arg = argText.trim().split(/\s+/)[1];
+  let bcId: string | null = null;
+  let bc: any = null;
+  if (arg) {
+    const { data } = await supabaseAdmin
+      .from("broadcasts")
+      .select("id, preview_text, sent_at, status, created_by_name")
+      .eq("id", arg)
+      .maybeSingle();
+    if (!data) {
+      await telegramCall("sendMessage", { chat_id: replyChatId, text: "❌ Broadcast not found." });
+      return;
+    }
+    bc = data;
+    bcId = data.id;
+  } else {
+    const { data } = await supabaseAdmin
+      .from("broadcasts")
+      .select("id, preview_text, sent_at, status, created_by_name")
+      .eq("created_by", fromId)
+      .in("status", ["sent", "partial"])
+      .order("sent_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!data) {
+      await telegramCall("sendMessage", { chat_id: replyChatId, text: "❌ No recent broadcast of yours to nuke." });
+      return;
+    }
+    bc = data;
+    bcId = data.id;
+  }
+
+  const { count } = await supabaseAdmin
+    .from("broadcast_targets")
+    .select("id", { count: "exact", head: true })
+    .eq("broadcast_id", bcId)
+    .not("sent_message_id", "is", null)
+    .neq("status", "deleted");
+
+  await telegramCall("sendMessage", {
+    chat_id: replyChatId,
+    text:
+      `☢️ <b>Nuke broadcast?</b>\n\n` +
+      `Preview: <i>${escapeHtml((bc.preview_text ?? "").slice(0, 200))}</i>\n` +
+      `Status: <b>${bc.status}</b>\n` +
+      `Will delete from <b>${count ?? 0}</b> channel(s).\n\n` +
+      `This cannot be undone.`,
+    parse_mode: "HTML",
+    reply_markup: {
+      inline_keyboard: [[
+        { text: "☢️ Confirm nuke", callback_data: `bc:nuke:${bcId}` },
+        { text: "❌ Cancel", callback_data: "bc:nukex" },
+      ]],
+    },
+  });
+}
+
 function formatName(u: { first_name?: string; last_name?: string; username?: string } | null | undefined): string {
   if (!u) return "there";
   return u.first_name || u.username || "there";
@@ -660,6 +735,9 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "/crosspost — same wizard but forwards with the 'forwarded from' header\n" +
                   "/broadcasts — recent broadcasts, cancel pending, cancel auto-delete\n" +
                   "/cancel — abort current wizard\n\n" +
+                  "☢️ Nuke (super admins, DM):\n" +
+                  "/nuke — delete your latest broadcast from every channel it went to\n" +
+                  "/nuke <broadcast_id> — target a specific broadcast\n\n" +
                   "📚 Templates (bot admins, DM):\n" +
                   "/savetpl <name> — reply to a message to save it as a template\n" +
                   "/templates — list saved templates\n" +
