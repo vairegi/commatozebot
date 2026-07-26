@@ -650,6 +650,10 @@ async function promptConfirm(fromId: number, chatId: number) {
 
   const when = d.scheduled_at ? `⏰ ${fmtIST(d.scheduled_at)}` : "🚀 Now";
   const del = d.auto_delete_seconds ? `🗑 after ${fmtDuration(d.auto_delete_seconds)}` : "🚫 no auto-delete";
+  const kb = (d.reply_markup as any)?.inline_keyboard as any[][] | undefined;
+  const btnLine = kb?.length
+    ? `\n🔘 Buttons:\n<pre>${escapeHtml(kb.map((r) => r.map((b: any) => `[${b.text}]`).join(" ")).join("\n"))}</pre>`
+    : "";
 
   await telegramCall("sendMessage", {
     chat_id: chatId,
@@ -658,11 +662,12 @@ async function promptConfirm(fromId: number, chatId: number) {
       `Preview: <i>${escapeHtml((d.preview_text ?? "").slice(0, 200))}</i>\n\n` +
       `Channels (${(d.selected_chat_ids ?? []).length}):\n${chatLines}\n\n` +
       `When: ${when}\n` +
-      `Delete: ${del}`,
+      `Delete: ${del}` + btnLine,
     parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: [
         [{ text: "👁 Preview to me", callback_data: "bc:pv" }],
+        [{ text: kb?.length ? "🔘 Edit buttons" : "🔘 Add buttons", callback_data: "bc:bt" }],
         [
           { text: "✅ Confirm", callback_data: "bc:go" },
           { text: "❌ Cancel", callback_data: "bc:x" },
