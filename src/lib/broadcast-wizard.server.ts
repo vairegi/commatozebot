@@ -123,6 +123,7 @@ export async function handleBroadcastCommand(args: {
       editing_broadcast_id: null,
       awaiting_custom: null,
       source_message_json: null,
+      reply_markup: null,
       mode,
     });
     const label = mode === "forward"
@@ -537,6 +538,7 @@ export async function startBroadcastFromTemplate(args: {
     auto_delete_seconds: null,
     editing_broadcast_id: null,
     awaiting_custom: null,
+    reply_markup: null,
     mode: template.mode ?? "copy",
   });
   await promptChannels(fromId, chatId);
