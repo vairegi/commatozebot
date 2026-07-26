@@ -304,8 +304,114 @@ export async function handleBroadcastMessage(args: {
     return true;
   }
 
+  // Awaiting new content for an edit
+  if (draft.step === "awaiting_edit_content" && draft.editing_broadcast_id) {
+    if (!message.message_id || !message.chat?.id) return true;
+    await saveDraft(fromId, {
+      source_chat_id: message.chat.id,
+      source_message_id: message.message_id,
+      preview_text: previewOf(message),
+      step: "confirm_edit",
+    });
+    await promptConfirmEdit(fromId, chatId);
+    return true;
+  }
+
   // Any other text while draft exists but no prompt — ignore (let normal commands run)
   return false;
+}
+
+/** Begin an edit-after-send flow for an existing broadcast owned by fromId (or any, for super admins). */
+async function startEditFlow(fromId: number, chatId: number, broadcastId: string) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: bc } = await supabaseAdmin
+    .from("broadcasts")
+    .select("id, created_by, status, preview_text")
+    .eq("id", broadcastId)
+    .maybeSingle();
+  if (!bc) {
+    await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Broadcast not found." });
+    return;
+  }
+  const b = bc as any;
+  if (b.created_by !== fromId) {
+    const { data: admin } = await supabaseAdmin
+      .from("telegram_bot_admins")
+      .select("role")
+      .eq("user_id", fromId)
+      .maybeSingle();
+    if (!admin || (admin as any).role !== "super_admin") {
+      await telegramCall("sendMessage", { chat_id: chatId, text: "❌ You can only edit your own broadcasts." });
+      return;
+    }
+  }
+  if (b.status !== "sent" && b.status !== "partial") {
+    await telegramCall("sendMessage", {
+      chat_id: chatId,
+      text: `❌ Only sent broadcasts can be edited (this one is <b>${b.status}</b>). Use /broadcasts to cancel it instead.`,
+      parse_mode: "HTML",
+    });
+    return;
+  }
+  const { count } = await supabaseAdmin
+    .from("broadcast_targets")
+    .select("id", { count: "exact", head: true })
+    .eq("broadcast_id", broadcastId)
+    .not("sent_message_id", "is", null)
+    .in("status", ["sent", "delete_failed"]);
+  if (!count) {
+    await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Nothing to edit — no delivered targets left (they may have been auto-deleted)." });
+    return;
+  }
+  await saveDraft(fromId, {
+    step: "awaiting_edit_content",
+    editing_broadcast_id: broadcastId,
+    source_chat_id: null,
+    source_message_id: null,
+    preview_text: null,
+    selected_chat_ids: [],
+    scheduled_at: null,
+    auto_delete_seconds: null,
+    awaiting_custom: null,
+    mode: "copy",
+  });
+  await telegramCall("sendMessage", {
+    chat_id: chatId,
+    text:
+      `✏️ <b>Edit broadcast</b>\n\nSend or forward the <b>new</b> message. I'll replace it in all ${count} delivered target${count === 1 ? "" : "s"}.\n\n` +
+      `Supported: text, photo, video, animation, document, audio. The new content type must match the original (Telegram won't turn a text post into media, or swap photo↔video, etc.).\n\n` +
+      `Use /cancel to abort.`,
+    parse_mode: "HTML",
+  });
+}
+
+async function promptConfirmEdit(fromId: number, chatId: number) {
+  const d = await getDraft(fromId);
+  if (!d) return;
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { count } = await supabaseAdmin
+    .from("broadcast_targets")
+    .select("id", { count: "exact", head: true })
+    .eq("broadcast_id", d.editing_broadcast_id)
+    .not("sent_message_id", "is", null)
+    .in("status", ["sent", "delete_failed"]);
+  await telegramCall("sendMessage", {
+    chat_id: chatId,
+    text:
+      `📋 <b>Confirm edit</b>\n\n` +
+      `New content: <i>${escapeHtml((d.preview_text ?? "").slice(0, 200))}</i>\n\n` +
+      `Will replace the message in <b>${count ?? 0}</b> target${count === 1 ? "" : "s"}.`,
+    parse_mode: "HTML",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "👁 Preview to me", callback_data: "bc:pv" }],
+        [
+          { text: "✅ Apply edit", callback_data: "bc:egox" },
+          { text: "❌ Cancel", callback_data: "bc:x" },
+        ],
+      ],
+    },
+  });
 }
 
 async function promptChannels(fromId: number, chatId: number) {
