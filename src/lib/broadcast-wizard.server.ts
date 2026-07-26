@@ -1170,3 +1170,109 @@ async function cancelAutoDeletes(fromId: number, chatId: number, id: string, cqI
   await telegramCall("answerCallbackQuery", { callback_query_id: cqId, text: "Auto-delete cancelled" });
   await telegramCall("sendMessage", { chat_id: chatId, text: "🚫 Auto-delete cleared for remaining targets." });
 }
+
+// ================== Button presets ==================
+
+async function promptButtonsMenu(fromId: number, chatId: number) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: presets } = await supabaseAdmin
+    .from("broadcast_button_presets")
+    .select("id, name")
+    .eq("user_id", fromId)
+    .order("name", { ascending: true })
+    .limit(20);
+  const rows: any[][] = [];
+  for (const p of (presets as any[] | null | undefined) ?? []) {
+    rows.push([{ text: `📌 ${p.name}`, callback_data: `bc:btp:${p.id}` }]);
+  }
+  rows.push([{ text: "✏️ Type custom", callback_data: "bc:btn" }]);
+  rows.push([{ text: "🗑 Remove buttons", callback_data: "bc:btc" }, { text: "↩️ Back", callback_data: "bc:bk" }]);
+  await telegramCall("sendMessage", {
+    chat_id: chatId,
+    parse_mode: "HTML",
+    text:
+      "🔘 <b>Buttons</b>\n\nPick a saved preset, type a custom set, or remove buttons. Save presets with <code>/savebtn &lt;name&gt;</code> (first line = name, then button lines).",
+    reply_markup: { inline_keyboard: rows },
+  });
+}
+
+async function listButtonPresets(fromId: number, chatId: number) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: presets } = await supabaseAdmin
+    .from("broadcast_button_presets")
+    .select("name, buttons, updated_at")
+    .eq("user_id", fromId)
+    .order("name", { ascending: true });
+  if (!presets?.length) {
+    await telegramCall("sendMessage", {
+      chat_id: chatId,
+      parse_mode: "HTML",
+      text:
+        "You have no saved button presets.\n\nSave one with <code>/savebtn</code> then reply with:\n<pre>preset name\nLabel - https://url | Label2 - https://url2\nRow2 - https://url</pre>",
+    });
+    return;
+  }
+  const lines: string[] = ["🔘 <b>Your button presets</b>\n"];
+  for (const p of presets as any[]) {
+    const kb = (p.buttons?.inline_keyboard ?? []) as any[][];
+    lines.push(`<b>${escapeHtml(p.name)}</b>\n<pre>${escapeHtml(kb.map((r) => r.map((b: any) => `[${b.text}]`).join(" ")).join("\n"))}</pre>`);
+  }
+  lines.push("\nDelete with <code>/delbtn &lt;name&gt;</code>.");
+  await telegramCall("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "HTML" });
+}
+
+async function saveButtonPresetCommand(fromId: number, chatId: number, argText: string) {
+  // argText is the full command text e.g. "/savebtn myname\nLabel - url\n..."
+  const afterCmd = argText.replace(/^\/savebtn(@\S+)?\s*/i, "");
+  const nl = afterCmd.indexOf("\n");
+  if (nl === -1 || !afterCmd.slice(nl + 1).trim()) {
+    // Prompt for follow-up
+    await saveDraft(fromId, { awaiting_custom: "savebtn" });
+    await telegramCall("sendMessage", {
+      chat_id: chatId,
+      parse_mode: "HTML",
+      text:
+        "🔘 <b>Save button preset</b>\n\nReply with:\n<pre>preset name\nLabel - https://url | Label2 - https://url2\nRow2 - https://url</pre>",
+    });
+    return;
+  }
+  const name = afterCmd.slice(0, nl).trim();
+  const spec = afterCmd.slice(nl + 1);
+  if (!name) {
+    await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Missing preset name." });
+    return;
+  }
+  try {
+    const kb = parseButtonSpec(spec);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await supabaseAdmin.from("broadcast_button_presets").upsert(
+      { user_id: fromId, name, buttons: { inline_keyboard: kb }, updated_at: new Date().toISOString() },
+      { onConflict: "user_id,name" },
+    );
+    await telegramCall("sendMessage", {
+      chat_id: chatId,
+      parse_mode: "HTML",
+      text: `✅ Saved preset <b>${escapeHtml(name)}</b>:\n<pre>${escapeHtml(keyboardPreview(kb))}</pre>`,
+    });
+  } catch (e: any) {
+    await telegramCall("sendMessage", { chat_id: chatId, text: `❌ ${e?.message ?? "invalid button spec"}` });
+  }
+}
+
+async function deleteButtonPreset(fromId: number, chatId: number, name: string) {
+  if (!name) {
+    await telegramCall("sendMessage", { chat_id: chatId, text: "Usage: <code>/delbtn &lt;name&gt;</code>", parse_mode: "HTML" });
+    return;
+  }
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { error, count } = await supabaseAdmin
+    .from("broadcast_button_presets")
+    .delete({ count: "exact" })
+    .eq("user_id", fromId)
+    .eq("name", name);
+  if (error) {
+    await telegramCall("sendMessage", { chat_id: chatId, text: `❌ ${error.message}` });
+    return;
+  }
+  await telegramCall("sendMessage", { chat_id: chatId, text: count ? `🗑 Deleted preset "${name}".` : `❌ No preset named "${name}".` });
+}
