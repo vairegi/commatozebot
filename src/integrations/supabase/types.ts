@@ -62,6 +62,33 @@ export type Database = {
         }
         Relationships: []
       }
+      broadcast_button_presets: {
+        Row: {
+          buttons: Json
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+          user_id: number
+        }
+        Insert: {
+          buttons: Json
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+          user_id: number
+        }
+        Update: {
+          buttons?: Json
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: number
+        }
+        Relationships: []
+      }
       broadcast_drafts: {
         Row: {
           auto_delete_seconds: number | null
@@ -69,6 +96,7 @@ export type Database = {
           editing_broadcast_id: string | null
           mode: string
           preview_text: string | null
+          reply_markup: Json | null
           scheduled_at: string | null
           selected_chat_ids: number[]
           source_chat_id: number | null
@@ -84,6 +112,7 @@ export type Database = {
           editing_broadcast_id?: string | null
           mode?: string
           preview_text?: string | null
+          reply_markup?: Json | null
           scheduled_at?: string | null
           selected_chat_ids?: number[]
           source_chat_id?: number | null
@@ -99,6 +128,7 @@ export type Database = {
           editing_broadcast_id?: string | null
           mode?: string
           preview_text?: string | null
+          reply_markup?: Json | null
           scheduled_at?: string | null
           selected_chat_ids?: number[]
           source_chat_id?: number | null
@@ -205,6 +235,7 @@ export type Database = {
           id: string
           mode: string
           preview_text: string | null
+          reply_markup: Json | null
           scheduled_at: string | null
           sent_at: string | null
           source_chat_id: number
@@ -220,6 +251,7 @@ export type Database = {
           id?: string
           mode?: string
           preview_text?: string | null
+          reply_markup?: Json | null
           scheduled_at?: string | null
           sent_at?: string | null
           source_chat_id: number
@@ -235,6 +267,7 @@ export type Database = {
           id?: string
           mode?: string
           preview_text?: string | null
+          reply_markup?: Json | null
           scheduled_at?: string | null
           sent_at?: string | null
           source_chat_id?: number
