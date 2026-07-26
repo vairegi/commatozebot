@@ -117,6 +117,7 @@ export async function handleBroadcastCommand(args: {
       auto_delete_seconds: null,
       editing_broadcast_id: null,
       awaiting_custom: null,
+      source_message_json: null,
       mode,
     });
     const label = mode === "forward"
