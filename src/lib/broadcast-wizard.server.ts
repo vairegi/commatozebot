@@ -224,7 +224,6 @@ export async function handleBroadcastMessage(args: {
       ),
     ) as number[];
     if (!ids.length) {
-      await telegramCall({ chat_id: chatId, text: "❌ Send one or more chat IDs (space/comma separated). Example: `-1001234567890`" } as any);
       await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Send one or more chat IDs (space/comma separated). Example: `-1001234567890`", parse_mode: "Markdown" });
       return true;
     }
