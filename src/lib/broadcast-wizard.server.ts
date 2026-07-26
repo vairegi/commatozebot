@@ -879,6 +879,52 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     return true;
   }
 
+  // Edit-after-send: start
+  if (op === "ed") {
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
+    await startEditFlow(fromId, chatId, arg);
+    return true;
+  }
+
+  // Edit-after-send: apply
+  if (op === "egox" && draft?.editing_broadcast_id) {
+    if (!draft.source_chat_id || !draft.source_message_id) {
+      await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "No new content yet.", show_alert: true });
+      return true;
+    }
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Applying edit…" });
+    // Fetch the new source message details from Telegram by copying it into DM — no; we have it stored.
+    // We need the full Message object to build InputMedia. Re-fetch by looking at the last stored preview isn't enough,
+    // so we instead read the message via a self-copy trick: forwardMessage into DM would re-send.
+    // Simpler: the wizard captured the message directly; reconstruct file_ids by reading the raw update — but the draft
+    // only stored ids. We hydrate by using getChat / but Bot API has no getMessage. So we asked the admin to send in DM;
+    // that message already lives at source_chat_id/source_message_id. Re-fetch via a forwardMessage→ourselves? That
+    // creates a new message. Instead, we store the raw message in the draft row.
+    const newSource = draft.source_message_json ?? null;
+    if (!newSource) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Lost the new content — please /editpost again." });
+      await clearDraft(fromId);
+      return true;
+    }
+    try {
+      const res = await runEditBroadcast({
+        broadcastId: draft.editing_broadcast_id,
+        fromId,
+        newSource,
+      });
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: formatEditReport(res),
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      });
+    } catch (e: any) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ Edit failed: ${e?.message ?? e}` });
+    }
+    await clearDraft(fromId);
+    return true;
+  }
+
   await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
   return true;
 }
