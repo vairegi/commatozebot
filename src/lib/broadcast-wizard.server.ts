@@ -9,6 +9,8 @@ import {
   formatDeliveryReport,
   runEditBroadcast,
   formatEditReport,
+  parseButtonSpec,
+  keyboardPreview,
 } from "./broadcast.server";
 
 type Admin = { user_id: number; role: string };
@@ -75,7 +77,10 @@ export async function handleBroadcastCommand(args: {
     cmd !== "/crosspost" &&
     cmd !== "/broadcasts" &&
     cmd !== "/cancel" &&
-    cmd !== "/editpost"
+    cmd !== "/editpost" &&
+    cmd !== "/savebtn" &&
+    cmd !== "/buttons" &&
+    cmd !== "/delbtn"
   ) return false;
 
   const admin = await getBotAdmin(fromId);
@@ -149,6 +154,20 @@ export async function handleBroadcastCommand(args: {
       return true;
     }
     await startEditFlow(fromId, chatId, rest);
+    return true;
+  }
+
+  if (cmd === "/buttons") {
+    await listButtonPresets(fromId, chatId);
+    return true;
+  }
+  if (cmd === "/savebtn") {
+    await saveButtonPresetCommand(fromId, chatId, argText ?? "");
+    return true;
+  }
+  if (cmd === "/delbtn") {
+    const name = (argText ?? "").trim().split(/\s+/).slice(1).join(" ").trim();
+    await deleteButtonPreset(fromId, chatId, name);
     return true;
   }
   return false;
