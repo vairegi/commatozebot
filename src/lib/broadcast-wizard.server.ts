@@ -1069,6 +1069,7 @@ async function commitDraft(fromId: number, fromName: string, chatId: number) {
       scheduled_at: d.scheduled_at,
       auto_delete_seconds: d.auto_delete_seconds,
       mode: d.mode ?? "copy",
+      reply_markup: d.reply_markup ?? null,
       status: "pending",
     })
     .select("id")
