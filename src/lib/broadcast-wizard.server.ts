@@ -914,6 +914,50 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     return true;
   }
 
+  // Buttons sub-flow
+  if (op === "bt" && draft) {
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
+    await promptButtonsMenu(fromId, chatId);
+    return true;
+  }
+  if (op === "btn" && draft) {
+    await saveDraft(fromId, { awaiting_custom: "buttons" });
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
+    await telegramCall("sendMessage", {
+      chat_id: chatId,
+      parse_mode: "HTML",
+      text:
+        "🔘 <b>Send button spec</b>\n\n" +
+        "One row per line. Use <code>|</code> to put buttons side-by-side.\n" +
+        "Each button: <code>Label - https://url</code>\n\n" +
+        "Example:\n<pre>Channel - https://t.me/mychannel | Bot - https://t.me/mybot\nSupport - https://t.me/support</pre>",
+    });
+    return true;
+  }
+  if (op === "btc" && draft) {
+    await saveDraft(fromId, { reply_markup: null, awaiting_custom: null });
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Buttons cleared" });
+    await promptConfirm(fromId, chatId);
+    return true;
+  }
+  if (op === "btp" && draft) {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: preset } = await supabaseAdmin
+      .from("broadcast_button_presets")
+      .select("name, buttons")
+      .eq("id", arg)
+      .eq("user_id", fromId)
+      .maybeSingle();
+    if (!preset) {
+      await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Preset not found", show_alert: true });
+      return true;
+    }
+    await saveDraft(fromId, { reply_markup: (preset as any).buttons });
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: `Applied "${(preset as any).name}"` });
+    await promptConfirm(fromId, chatId);
+    return true;
+  }
+
   // /nuke confirmation
   if (op === "nuke") {
     const { runNuke } = await import("@/lib/broadcast.server");
