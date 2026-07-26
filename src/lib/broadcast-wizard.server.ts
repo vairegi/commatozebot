@@ -603,6 +603,22 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
   }
 
   if (op === "all" && draft) {
+    // handled below
+  }
+
+  if (op === "byid" && draft) {
+    await saveDraft(fromId, { awaiting_custom: "chatid" });
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
+    await telegramCall("sendMessage", {
+      chat_id: chatId,
+      text:
+        "🎯 <b>Send chat ID(s)</b>\n\nPaste one or more Telegram chat IDs (space or comma separated). I'll verify I'm admin in each.\n\nExample: <code>-1001234567890 -1009876543210</code>",
+      parse_mode: "HTML",
+    });
+    return true;
+  }
+
+  if (op === "all" && draft) {
     const bot = await getBotIdentity();
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: chats } = await supabaseAdmin
