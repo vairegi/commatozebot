@@ -378,6 +378,186 @@ export function formatDeliveryReport(
   return lines.join("\n");
 }
 
+export interface EditResultTarget {
+  chat_id: number;
+  chat_title?: string | null;
+  username?: string | null;
+  ok: boolean;
+  error?: string;
+  link?: string | null;
+}
+
+/**
+ * Edit every already-delivered target of a broadcast, replacing its content
+ * with the content of `newSource`. Supported new content shapes: text,
+ * photo, video, animation, document, audio. Per-target failures are recorded
+ * and reported but never abort the loop.
+ */
+export async function runEditBroadcast(args: {
+  broadcastId: string;
+  fromId: number;
+  newSource: any; // Telegram Message object the admin sent in DM
+}): Promise<{ targets: EditResultTarget[]; okCount: number; failCount: number }> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  const { data: bc } = await supabaseAdmin
+    .from("broadcasts")
+    .select("id, created_by")
+    .eq("id", args.broadcastId)
+    .maybeSingle();
+  if (!bc) throw new Error("broadcast not found");
+  if ((bc as any).created_by !== args.fromId) {
+    // Allow super admin to edit anyone's broadcast.
+    const { data: admin } = await supabaseAdmin
+      .from("telegram_bot_admins")
+      .select("role")
+      .eq("user_id", args.fromId)
+      .maybeSingle();
+    if (!admin || (admin as any).role !== "super_admin") {
+      throw new Error("only the creator or a super admin can edit this broadcast");
+    }
+  }
+
+  const { data: targets } = await supabaseAdmin
+    .from("broadcast_targets")
+    .select("id, chat_id, chat_title, sent_message_id, status")
+    .eq("broadcast_id", args.broadcastId)
+    .not("sent_message_id", "is", null)
+    .in("status", ["sent", "delete_failed"]);
+
+  const chatIds = (targets ?? []).map((t: any) => t.chat_id);
+  const { data: chatMeta } = chatIds.length
+    ? await supabaseAdmin
+        .from("telegram_chats")
+        .select("chat_id, username, title")
+        .in("chat_id", chatIds)
+    : { data: [] as any[] };
+  const metaMap = new Map<number, { username: string | null; title: string | null }>();
+  for (const c of (chatMeta as any[]) ?? []) {
+    metaMap.set(Number(c.chat_id), { username: c.username ?? null, title: c.title ?? null });
+  }
+
+  const src = args.newSource ?? {};
+  const results: EditResultTarget[] = [];
+
+  for (const t of (targets as any[]) ?? []) {
+    const meta = metaMap.get(Number(t.chat_id));
+    const base = {
+      chat_id: t.chat_id as number,
+      chat_title: (t.chat_title ?? meta?.title ?? null) as string | null,
+      username: meta?.username ?? null,
+      link: buildMessageLink({ chatId: t.chat_id, messageId: t.sent_message_id, username: meta?.username }),
+    };
+    try {
+      if (src.text) {
+        await telegramCall("editMessageText", {
+          chat_id: t.chat_id,
+          message_id: t.sent_message_id,
+          text: src.text,
+          entities: src.entities,
+          disable_web_page_preview: false,
+        });
+      } else {
+        const media = buildInputMedia(src);
+        if (!media) throw new Error("unsupported content type — send text, photo, video, animation, document, or audio");
+        await telegramCall("editMessageMedia", {
+          chat_id: t.chat_id,
+          message_id: t.sent_message_id,
+          media,
+        });
+      }
+      results.push({ ...base, ok: true });
+    } catch (e: any) {
+      const msg = e?.message ?? String(e);
+      // Persist the last edit error on the target for visibility.
+      await supabaseAdmin
+        .from("broadcast_targets")
+        .update({ error: `edit failed: ${msg}` })
+        .eq("id", t.id);
+      results.push({ ...base, ok: false, error: msg });
+    }
+  }
+
+  // Update the source pointer + preview so /broadcasts reflects the new content,
+  // and future /nuke / re-edits target the right message ids (target ids don't change).
+  const newPreview = previewOfSource(src);
+  await supabaseAdmin
+    .from("broadcasts")
+    .update({
+      source_chat_id: src.chat?.id ?? undefined,
+      source_message_id: src.message_id ?? undefined,
+      preview_text: newPreview,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", args.broadcastId);
+
+  const okCount = results.filter((r) => r.ok).length;
+  return { targets: results, okCount, failCount: results.length - okCount };
+}
+
+function firstFileId(arr: any): string | null {
+  if (!Array.isArray(arr) || !arr.length) return null;
+  // Photo array is smallest→largest; pick largest for best quality edit.
+  const last = arr[arr.length - 1];
+  return last?.file_id ?? null;
+}
+
+function buildInputMedia(src: any): any | null {
+  const caption = src.caption;
+  const caption_entities = src.caption_entities;
+  if (src.photo) {
+    const file_id = firstFileId(src.photo);
+    if (!file_id) return null;
+    return { type: "photo", media: file_id, caption, caption_entities };
+  }
+  if (src.video) {
+    return { type: "video", media: src.video.file_id, caption, caption_entities };
+  }
+  if (src.animation) {
+    return { type: "animation", media: src.animation.file_id, caption, caption_entities };
+  }
+  if (src.document) {
+    return { type: "document", media: src.document.file_id, caption, caption_entities };
+  }
+  if (src.audio) {
+    return { type: "audio", media: src.audio.file_id, caption, caption_entities };
+  }
+  return null;
+}
+
+function previewOfSource(m: any): string {
+  if (!m) return "[message]";
+  if (m.text) return String(m.text).slice(0, 120);
+  if (m.caption) return `[media] ${String(m.caption).slice(0, 100)}`;
+  if (m.photo) return "[photo]";
+  if (m.video) return "[video]";
+  if (m.document) return `[document] ${m.document.file_name ?? ""}`;
+  if (m.animation) return "[gif]";
+  if (m.audio) return "[audio]";
+  return "[message]";
+}
+
+export function formatEditReport(res: { targets: EditResultTarget[]; okCount: number; failCount: number }): string {
+  const headline = res.failCount === 0
+    ? "✏️ <b>Edit applied to all targets</b>"
+    : res.okCount === 0
+      ? "✏️ <b>Edit failed on all targets</b>"
+      : "✏️ <b>Edit partially applied</b>";
+  const lines = [headline, `✅ ${res.okCount} updated${res.failCount ? `   ❌ ${res.failCount} failed` : ""}`, ""];
+  for (const r of res.targets) {
+    const title = (r.chat_title ?? String(r.chat_id))
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    if (r.ok) {
+      const link = r.link ? ` — <a href="${r.link}">open</a>` : "";
+      lines.push(`✅ ${title}${link}`);
+    } else {
+      const err = r.error ? ` — ${r.error.slice(0, 120).replace(/&/g, "&amp;").replace(/</g, "&lt;")}` : "";
+      lines.push(`❌ ${title}${err}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 /** Run pending scheduled broadcasts and pending auto-deletes. */
 export async function tickBroadcasts(): Promise<{
   sent: number;
