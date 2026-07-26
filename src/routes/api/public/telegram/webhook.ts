@@ -735,6 +735,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "/post — start a broadcast wizard (send/forward the post → pick channels → timing → auto-delete)\n" +
                   "/crosspost — same wizard but forwards with the 'forwarded from' header\n" +
                   "/broadcasts — recent broadcasts, cancel pending, cancel auto-delete\n" +
+                  "/editpost <broadcast_id> — replace a sent broadcast's content across every target channel\n" +
                   "/cancel — abort current wizard\n\n" +
                   "☢️ Nuke (super admins, DM):\n" +
                   "/nuke — delete your latest broadcast from every channel it went to\n" +
