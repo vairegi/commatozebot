@@ -256,7 +256,7 @@ export async function executeBroadcast(broadcastId: string): Promise<{
 
   const { data: bc, error: bcErr } = await supabaseAdmin
     .from("broadcasts")
-    .select("id, source_chat_id, source_message_id, auto_delete_seconds, status, mode")
+    .select("id, source_chat_id, source_message_id, auto_delete_seconds, status, mode, reply_markup")
     .eq("id", broadcastId)
     .maybeSingle();
   if (bcErr || !bc) throw new Error(`broadcast not found: ${broadcastId}`);
@@ -286,16 +286,21 @@ export async function executeBroadcast(broadcastId: string): Promise<{
   }
 
   const method = (bc as any).mode === "forward" ? "forwardMessage" : "copyMessage";
+  const replyMarkup = (bc as any).reply_markup ?? null;
+  // forwardMessage doesn't accept reply_markup — force copy when buttons are attached
+  const effectiveMethod = replyMarkup ? "copyMessage" : method;
 
   const results: SendResultTarget[] = [];
   const nowMs = Date.now();
   for (const t of targets ?? []) {
     try {
-      const res = await telegramCall(method, {
+      const payload: Record<string, any> = {
         chat_id: t.chat_id,
         from_chat_id: bc.source_chat_id,
         message_id: bc.source_message_id,
-      });
+      };
+      if (replyMarkup) payload.reply_markup = replyMarkup;
+      const res = await telegramCall(effectiveMethod, payload);
       const mid = res?.message_id as number | undefined;
       const deleteAt = bc.auto_delete_seconds
         ? new Date(nowMs + bc.auto_delete_seconds * 1000).toISOString()
