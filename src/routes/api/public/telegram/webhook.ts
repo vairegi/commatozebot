@@ -434,6 +434,16 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 : "unknown";
               const chatTitle = c.title ?? c.username ?? `Chat ${c.id}`;
               const chatLabel = c.username ? `@${c.username}` : `<code>${c.id}</code>`;
+              // Build a deep link to the chat so the admin can jump in and re-grant rights.
+              let deepLink: string | null = null;
+              if (c.username) {
+                deepLink = `https://t.me/${c.username}`;
+              } else {
+                const idStr = String(c.id);
+                if (idStr.startsWith("-100")) {
+                  deepLink = `https://t.me/c/${idStr.slice(4)}`;
+                }
+              }
               let reason = "demoted from admin";
               if (newStatus === "left") reason = "removed / left the chat";
               else if (newStatus === "kicked") reason = "banned / kicked";
@@ -445,7 +455,8 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 `Type: ${c.type}\n` +
                 `Was: <code>${oldStatus}</code> → Now: <code>${newStatus ?? "unknown"}</code>\n` +
                 `Reason: ${reason}\n` +
-                `By: ${escapeHtml(actorName)}`;
+                `By: ${escapeHtml(actorName)}` +
+                (deepLink ? `\n\n🔗 <a href="${deepLink}">Open chat</a> to restore admin rights` : "");
               const { data: admins } = await supabaseAdmin
                 .from("telegram_bot_admins")
                 .select("user_id");
@@ -455,6 +466,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                     chat_id: a.user_id,
                     text,
                     parse_mode: "HTML",
+                    disable_web_page_preview: true,
                   });
                 } catch (err) {
                   console.warn("alert DM failed", a.user_id, err);
