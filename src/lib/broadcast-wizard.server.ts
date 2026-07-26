@@ -7,6 +7,8 @@ import {
   fmtDuration,
   executeBroadcast,
   formatDeliveryReport,
+  runEditBroadcast,
+  formatEditReport,
 } from "./broadcast.server";
 
 type Admin = { user_id: number; role: string };
@@ -65,9 +67,16 @@ export async function handleBroadcastCommand(args: {
   fromName: string;
   chatId: number;
   chatType: string;
+  argText?: string;
 }): Promise<boolean> {
-  const { cmd, fromId, fromName, chatId, chatType } = args;
-  if (cmd !== "/post" && cmd !== "/crosspost" && cmd !== "/broadcasts" && cmd !== "/cancel") return false;
+  const { cmd, fromId, fromName, chatId, chatType, argText } = args;
+  if (
+    cmd !== "/post" &&
+    cmd !== "/crosspost" &&
+    cmd !== "/broadcasts" &&
+    cmd !== "/cancel" &&
+    cmd !== "/editpost"
+  ) return false;
 
   const admin = await getBotAdmin(fromId);
   if (!admin) {
@@ -126,6 +135,21 @@ export async function handleBroadcastCommand(args: {
     await listBroadcasts(fromId, chatId, fromName);
     return true;
   }
+
+  if (cmd === "/editpost") {
+    // /editpost <broadcast_id>
+    const rest = (argText ?? "").trim().split(/\s+/).slice(1).join(" ").trim();
+    if (!rest) {
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: "Usage: <code>/editpost &lt;broadcast_id&gt;</code>\n\nOr use /broadcasts and tap ✏️ Edit on a sent post.",
+        parse_mode: "HTML",
+      });
+      return true;
+    }
+    await startEditFlow(fromId, chatId, rest);
+    return true;
+  }
   return false;
 }
 
@@ -155,7 +179,10 @@ async function listBroadcasts(fromId: number, chatId: number, _fromName: string)
     lines.push(`• <b>${r.status}</b> — ${when}\n   ${escapeHtml(preview)}`);
     const row: any[] = [{ text: `👁 ${r.status}`, callback_data: `bc:v:${r.id}` }];
     if (r.status === "pending") row.push({ text: "🗑 Cancel", callback_data: `bc:cx:${r.id}` });
-    if (r.status === "sent" || r.status === "partial") row.push({ text: "🚫 Cancel auto-delete", callback_data: `bc:cd:${r.id}` });
+    if (r.status === "sent" || r.status === "partial") {
+      row.push({ text: "✏️ Edit", callback_data: `bc:ed:${r.id}` });
+      row.push({ text: "🚫 Cancel auto-delete", callback_data: `bc:cd:${r.id}` });
+    }
     keyboard.push(row);
   }
   await telegramCall("sendMessage", {
