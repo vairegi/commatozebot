@@ -890,6 +890,7 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
         chat_id: fromId,
         from_chat_id: draft.source_chat_id,
         message_id: draft.source_message_id,
+        ...(draft.reply_markup ? { reply_markup: draft.reply_markup } : {}),
       });
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Preview sent" });
     } catch (e: any) {
