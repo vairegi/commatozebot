@@ -760,6 +760,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "📚 Channel lists (bot admins, DM):\n" +
                   "/lists — show all channel lists with counts\n" +
                   "/showlist <name> — show channels in a list\n" +
+                  "/createlist <name> [chat_id …] — create a new empty or seeded list\n" +
                   "/addtolist <name> <chat_id> [chat_id …] — add channels (creates list if new)\n" +
                   "/removefromlist <name> <chat_id> [chat_id …] — remove channels\n" +
                   "/dellist <name> — delete an entire list\n" +
