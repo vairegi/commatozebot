@@ -500,38 +500,7 @@ async function promptConfirmEdit(fromId: number, chatId: number) {
 }
 
 async function promptChannels(fromId: number, chatId: number) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data: chats } = await supabaseAdmin
-    .from("telegram_chats")
-    .select("chat_id, title, type, username")
-    .in("type", ["group", "supergroup", "channel"])
-    .order("last_activity_at", { ascending: false })
-    .limit(50);
-
-  if (!chats?.length) {
-    await telegramCall("sendMessage", { chat_id: chatId, text: "I'm not in any groups or channels yet." });
-    await clearDraft(fromId);
-    return;
-  }
-
-  // Filter to chats where the bot is admin (user admin status is not required).
-  const bot = await getBotIdentity();
-  const eligible: Array<{ chat_id: number; title: string; type: string }> = [];
-  await Promise.all(
-    (chats as any[]).map(async (c) => {
-      const bs = await getChatMemberStatus(c.chat_id, bot.id);
-      const ba = bs === "administrator" || bs === "creator";
-      if (ba) eligible.push({ chat_id: c.chat_id, title: c.title ?? c.username ?? `Chat ${c.chat_id}`, type: c.type });
-    }),
-  );
-
-  if (!eligible.length) {
-    await telegramCall("sendMessage", { chat_id: chatId, text: "I'm not an admin in any groups or channels yet. Add me as admin first." });
-    await clearDraft(fromId);
-    return;
-  }
-
-  await renderChannelList(fromId, chatId, eligible);
+  await renderChannelList(fromId, chatId);
 }
 
 /** Start a broadcast wizard directly from a saved template (skips awaiting_content). */
@@ -563,30 +532,72 @@ export async function startBroadcastFromTemplate(args: {
 async function renderChannelList(
   fromId: number,
   chatId: number,
-  eligible: Array<{ chat_id: number; title: string; type: string }>,
+  opts?: { editMessageId?: number },
 ) {
-  // Read-only list. User selects by pasting chat IDs (tap the ID to copy).
-  const lines = eligible.map((c) => {
-    const icon = c.type === "channel" ? "📢" : "👥";
-    return `${icon} ${escapeHtml(c.title.slice(0, 60))}\n   <code>${c.chat_id}</code>`;
-  });
-  // Arm chatid input immediately so the user can just paste IDs.
-  await saveDraft(fromId, { awaiting_custom: "chatid" });
+  const d = await getDraft(fromId);
+  const selected: number[] = ((d?.selected_chat_ids ?? []) as any[]).map(Number);
+
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: listRows } = await supabaseAdmin
+    .from("chat_lists")
+    .select("category, chat_id");
+
+  const byCat = new Map<string, number[]>();
+  for (const r of ((listRows ?? []) as any[])) {
+    const cat = String(r.category);
+    if (!byCat.has(cat)) byCat.set(cat, []);
+    byCat.get(cat)!.push(Number(r.chat_id));
+  }
+  const cats = Array.from(byCat.keys()).sort();
+
+  const rows: any[][] = [];
+  for (let i = 0; i < cats.length; i += 2) {
+    const row: any[] = [];
+    for (const cat of cats.slice(i, i + 2)) {
+      const ids = byCat.get(cat)!;
+      const allSel = ids.length > 0 && ids.every((id) => selected.includes(id));
+      const mark = allSel ? "✅" : "◻️";
+      row.push({ text: `${mark} ${cat} (${ids.length})`, callback_data: `bc:lst:${cat}` });
+    }
+    rows.push(row);
+  }
+  rows.push([{ text: "🎯 Enter ID", callback_data: "bc:byid" }]);
+  if (selected.length) {
+    rows.push([{ text: "🧹 Clear selection", callback_data: "bc:clr" }]);
+  }
+  rows.push([
+    { text: `➡️ Next (${selected.length})`, callback_data: "bc:next" },
+    { text: "❌ Cancel", callback_data: "bc:x" },
+  ]);
+
+  const catsLine = cats.length
+    ? `Tap a list to add all its channels. Tap again to remove them.`
+    : `No lists yet. Use /createlist &lt;name&gt; to make one, then /addtolist &lt;name&gt; &lt;chat_id&gt;.`;
+  const text =
+    `📡 <b>Pick target channels</b>\n\n` +
+    `${catsLine}\n\n` +
+    `Or tap 🎯 <b>Enter ID</b> to add specific chat IDs.\n\n` +
+    `Selected: <b>${selected.length}</b>`;
+
+  if (opts?.editMessageId) {
+    try {
+      await telegramCall("editMessageText", {
+        chat_id: chatId,
+        message_id: opts.editMessageId,
+        text,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: rows },
+      });
+      return;
+    } catch { /* fall through to send */ }
+  }
+  // Clear any leftover input mode; user will explicitly tap Enter ID to arm it.
+  await saveDraft(fromId, { awaiting_custom: null });
   await telegramCall("sendMessage", {
     chat_id: chatId,
-    text:
-      `📡 <b>Your channels &amp; groups (${eligible.length})</b>\n\n` +
-      lines.join("\n\n") +
-      `\n\n<b>Send the chat ID(s)</b> you want to post to. Tap an ID above to copy it. Space or comma separated.\n\n` +
-      `Example: <code>${eligible[0]?.chat_id ?? "-1001234567890"}</code>`,
+    text,
     parse_mode: "HTML",
-    link_preview_options: { is_disabled: true },
-    reply_markup: {
-      inline_keyboard: [[
-        { text: "➡️ Next (0)", callback_data: "bc:next" },
-        { text: "❌ Cancel", callback_data: "bc:x" },
-      ]],
-    },
+    reply_markup: { inline_keyboard: rows },
   });
 }
 
