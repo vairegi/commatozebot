@@ -758,11 +758,13 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   "/listadmins — list bot admins\n" +
                   "(First caller becomes the owner 👑 automatically.)\n\n" +
                   "📚 Channel lists (bot admins, DM):\n" +
-                  "/adultchannels — list channels in the Adult list\n" +
-                  "/mangachannels — list channels in the Manga list\n" +
-                  "/addtolist <adult|manga> <chat_id> [chat_id …] — add channels to a list\n" +
-                  "/removefromlist <adult|manga> <chat_id> [chat_id …] — remove channels\n" +
-                  "In /post you can pick All, Adult only, or Manga only.\n\n" +
+                  "/lists — show all channel lists with counts\n" +
+                  "/showlist <name> — show channels in a list\n" +
+                  "/addtolist <name> <chat_id> [chat_id …] — add channels (creates list if new)\n" +
+                  "/removefromlist <name> <chat_id> [chat_id …] — remove channels\n" +
+                  "/dellist <name> — delete an entire list\n" +
+                  "List name = 1-30 chars, letters/digits/underscore. Examples: anime, news, vip.\n" +
+                  "Shortcuts: /adultchannels, /mangachannels. In /post you can pick All, Adult, or Manga.\n\n" +
                   "🗄 Backup (super admins, DM):\n" +
                   "/backup — DM you a JSON backup of all app data now\n" +
                   "/restore — upload a backup JSON as a document with caption /restore to restore\n" +
