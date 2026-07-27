@@ -712,48 +712,9 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     return true;
   }
 
-  // Channel toggle
-  if (op === "t" && draft) {
-    const cid = Number(arg);
-    const cur: number[] = draft.selected_chat_ids ?? [];
-    const next = cur.includes(cid) ? cur.filter((x) => x !== cid) : [...cur, cid];
-    await saveDraft(fromId, { selected_chat_ids: next });
+  // Legacy per-channel toggle (no longer rendered). Ignore politely.
+  if (op === "t") {
     await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
-    // Re-render picker
-    const bot = await getBotIdentity();
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: chats } = await supabaseAdmin
-      .from("telegram_chats")
-      .select("chat_id, title, type, username")
-      .in("type", ["group", "supergroup", "channel"])
-      .order("last_activity_at", { ascending: false })
-      .limit(50);
-    const eligible: Array<{ chat_id: number; title: string; type: string }> = [];
-    await Promise.all((chats as any[]).map(async (c) => {
-      const bs = await getChatMemberStatus(c.chat_id, bot.id);
-      if (bs === "administrator" || bs === "creator") {
-        eligible.push({ chat_id: c.chat_id, title: c.title ?? c.username ?? `Chat ${c.chat_id}`, type: c.type });
-      }
-    }));
-    const rows: any[][] = eligible.map((c) => {
-      const on = next.includes(c.chat_id);
-      const icon = c.type === "channel" ? "📢" : "👥";
-      return [{ text: `${on ? "✅" : "◻️"} ${icon} ${c.title.slice(0, 40)}`, callback_data: `bc:t:${c.chat_id}` }];
-    });
-    rows.push([
-      { text: "🎯 Pick by ID", callback_data: "bc:byid" },
-    ]);
-    rows.push([
-      { text: "❌ Cancel", callback_data: "bc:x" },
-      { text: `➡️ Next (${next.length})`, callback_data: "bc:next" },
-    ]);
-    try {
-      await telegramCall("editMessageReplyMarkup", {
-        chat_id: chatId,
-        message_id: cq.message.message_id,
-        reply_markup: { inline_keyboard: rows },
-      });
-    } catch { /* ignore */ }
     return true;
   }
 
