@@ -354,13 +354,14 @@ export async function handleBroadcastMessage(args: {
       await telegramCall("sendMessage", { chat_id: chatId, text: `❌ None of those work:\n${lines}\n\nSend valid IDs or /cancel.`, parse_mode: "HTML" });
       return true;
     }
-    // Merge with any already-selected
+    // Merge with any already-selected. Keep awaiting_custom = "chatid" so the
+    // user can keep pasting more IDs without re-tapping a button.
     const merged = Array.from(new Set([...(draft.selected_chat_ids ?? []), ...ok]));
-    await saveDraft(fromId, { selected_chat_ids: merged, awaiting_custom: null });
+    await saveDraft(fromId, { selected_chat_ids: merged, awaiting_custom: "chatid" });
     const skipped = bad.length ? `\n\n⚠️ Skipped:\n${bad.map((b) => `  • <code>${b.id}</code> — ${escapeHtml(b.reason)}`).join("\n")}` : "";
     await telegramCall("sendMessage", {
       chat_id: chatId,
-      text: `✅ Added ${ok.length} chat${ok.length === 1 ? "" : "s"} (total selected: <b>${merged.length}</b>).${skipped}\n\nTap ➡️ Next to continue, or send more IDs.`,
+      text: `✅ Added ${ok.length} chat${ok.length === 1 ? "" : "s"} (total selected: <b>${merged.length}</b>).${skipped}\n\nPaste more IDs to add them, or tap ➡️ Next to continue.`,
       parse_mode: "HTML",
       reply_markup: {
         inline_keyboard: [[
