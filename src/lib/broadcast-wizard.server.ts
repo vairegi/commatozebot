@@ -791,6 +791,44 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     return true;
   }
 
+  // Toggle a whole list (add if not fully selected, remove otherwise).
+  if (op === "lst" && draft) {
+    const cat = arg;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: listRows } = await supabaseAdmin
+      .from("chat_lists")
+      .select("chat_id")
+      .eq("category", cat);
+    const ids = ((listRows ?? []) as any[]).map((r) => Number(r.chat_id));
+    if (!ids.length) {
+      await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: `"${cat}" is empty.`, show_alert: true });
+      return true;
+    }
+    const current: number[] = ((draft.selected_chat_ids ?? []) as any[]).map(Number);
+    const allSel = ids.every((id) => current.includes(id));
+    let next: number[];
+    let msg: string;
+    if (allSel) {
+      const removeSet = new Set(ids);
+      next = current.filter((id) => !removeSet.has(id));
+      msg = `Removed ${cat} (${ids.length})`;
+    } else {
+      next = Array.from(new Set([...current, ...ids]));
+      msg = `Added ${cat} (${ids.length})`;
+    }
+    await saveDraft(fromId, { selected_chat_ids: next });
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: msg });
+    await renderChannelList(fromId, chatId, { editMessageId: cq.message?.message_id });
+    return true;
+  }
+
+  if (op === "clr" && draft) {
+    await saveDraft(fromId, { selected_chat_ids: [] });
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Cleared" });
+    await renderChannelList(fromId, chatId, { editMessageId: cq.message?.message_id });
+    return true;
+  }
+
   if (op === "all" && draft) {
     const bot = await getBotIdentity();
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
