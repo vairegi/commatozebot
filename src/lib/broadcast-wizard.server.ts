@@ -562,14 +562,6 @@ async function renderChannelPicker(
     ];
   });
   rows.push([
-    { text: "☑️ All", callback_data: "bc:all" },
-    { text: "🔞 Adult", callback_data: "bc:pre:adult" },
-    { text: "📚 Manga", callback_data: "bc:pre:manga" },
-  ]);
-  rows.push([
-    { text: "🔞+📚 Adult & Manga", callback_data: "bc:pre:both" },
-  ]);
-  rows.push([
     { text: "🎯 Pick by ID", callback_data: "bc:byid" },
   ]);
   rows.push([
@@ -580,7 +572,7 @@ async function renderChannelPicker(
     chat_id: chatId,
     text:
       `📡 <b>Pick target channels</b>\n\n` +
-      `Tap to toggle, or use a preset: All / 🔞 Adult / 📚 Manga / 🔞+📚 Both. Then press Next.`,
+      `Tap each channel to select it, then press Next.`,
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: rows },
   });
@@ -736,14 +728,6 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
       const icon = c.type === "channel" ? "📢" : "👥";
       return [{ text: `${on ? "✅" : "◻️"} ${icon} ${c.title.slice(0, 40)}`, callback_data: `bc:t:${c.chat_id}` }];
     });
-    rows.push([
-      { text: "☑️ All", callback_data: "bc:all" },
-      { text: "🔞 Adult", callback_data: "bc:pre:adult" },
-      { text: "📚 Manga", callback_data: "bc:pre:manga" },
-    ]);
-    rows.push([
-      { text: "🔞+📚 Adult & Manga", callback_data: "bc:pre:both" },
-    ]);
     rows.push([
       { text: "🎯 Pick by ID", callback_data: "bc:byid" },
     ]);
