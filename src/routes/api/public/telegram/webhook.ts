@@ -679,6 +679,29 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
           const text: string = message.text ?? "";
           const cmd = text.trim().split(/\s+/)[0]?.split("@")[0]?.toLowerCase();
 
+          // Silently ignore commands from non-bot-admins so the bot doesn't
+          // respond to random users. Bootstrap exception: when there are no
+          // bot admins yet, allow /addadmin and /listadmins so the first
+          // caller can claim ownership.
+          const isCommand = !!cmd && cmd.startsWith("/");
+          if (isCommand) {
+            const { data: gateRow } = await supabaseAdmin
+              .from("telegram_bot_admins")
+              .select("user_id")
+              .eq("user_id", from.id)
+              .maybeSingle();
+            if (!gateRow) {
+              const { count: gateCount } = await supabaseAdmin
+                .from("telegram_bot_admins")
+                .select("user_id", { count: "exact", head: true });
+              const bootstrap =
+                (gateCount ?? 0) === 0 && (cmd === "/addadmin" || cmd === "/listadmins");
+              if (!bootstrap) {
+                return Response.json({ ok: true });
+              }
+            }
+          }
+
           // /restore via uploaded JSON document (caption starts with /restore)
           const captionCmd = (message.caption ?? "").trim().split(/\s+/)[0]?.split("@")[0]?.toLowerCase();
           if (message.document && captionCmd === "/restore") {
