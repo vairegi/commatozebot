@@ -137,7 +137,6 @@ const HELP_DETAILED =
   "/radmin &lt;user_id&gt; — revoke bot access (super admins only for other super admins).\n" +
   "/listadmins — list bot admins.\n" +
   "(The first caller becomes the owner 👑 automatically.)";
-}
 
 async function handleStats(args: {
   fromId: number;
