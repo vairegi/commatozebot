@@ -354,13 +354,14 @@ export async function handleBroadcastMessage(args: {
       await telegramCall("sendMessage", { chat_id: chatId, text: `❌ None of those work:\n${lines}\n\nSend valid IDs or /cancel.`, parse_mode: "HTML" });
       return true;
     }
-    // Merge with any already-selected
+    // Merge with any already-selected. Keep awaiting_custom = "chatid" so the
+    // user can keep pasting more IDs without re-tapping a button.
     const merged = Array.from(new Set([...(draft.selected_chat_ids ?? []), ...ok]));
-    await saveDraft(fromId, { selected_chat_ids: merged, awaiting_custom: null });
+    await saveDraft(fromId, { selected_chat_ids: merged, awaiting_custom: "chatid" });
     const skipped = bad.length ? `\n\n⚠️ Skipped:\n${bad.map((b) => `  • <code>${b.id}</code> — ${escapeHtml(b.reason)}`).join("\n")}` : "";
     await telegramCall("sendMessage", {
       chat_id: chatId,
-      text: `✅ Added ${ok.length} chat${ok.length === 1 ? "" : "s"} (total selected: <b>${merged.length}</b>).${skipped}\n\nTap ➡️ Next to continue, or send more IDs.`,
+      text: `✅ Added ${ok.length} chat${ok.length === 1 ? "" : "s"} (total selected: <b>${merged.length}</b>).${skipped}\n\nPaste more IDs to add them, or tap ➡️ Next to continue.`,
       parse_mode: "HTML",
       reply_markup: {
         inline_keyboard: [[
@@ -530,7 +531,7 @@ async function promptChannels(fromId: number, chatId: number) {
     return;
   }
 
-  await renderChannelPicker(fromId, chatId, eligible, []);
+  await renderChannelList(fromId, chatId, eligible);
 }
 
 /** Start a broadcast wizard directly from a saved template (skips awaiting_content). */
@@ -559,36 +560,33 @@ export async function startBroadcastFromTemplate(args: {
   return true;
 }
 
-async function renderChannelPicker(
-  _fromId: number,
+async function renderChannelList(
+  fromId: number,
   chatId: number,
   eligible: Array<{ chat_id: number; title: string; type: string }>,
-  selected: number[],
 ) {
-  const rows: any[][] = eligible.map((c) => {
-    const on = selected.includes(c.chat_id);
+  // Read-only list. User selects by pasting chat IDs (tap the ID to copy).
+  const lines = eligible.map((c) => {
     const icon = c.type === "channel" ? "📢" : "👥";
-    return [
-      {
-        text: `${on ? "✅" : "◻️"} ${icon} ${c.title.slice(0, 40)}`,
-        callback_data: `bc:t:${c.chat_id}`,
-      },
-    ];
+    return `${icon} ${escapeHtml(c.title.slice(0, 60))}\n   <code>${c.chat_id}</code>`;
   });
-  rows.push([
-    { text: "🎯 Pick by ID", callback_data: "bc:byid" },
-  ]);
-  rows.push([
-    { text: "❌ Cancel", callback_data: "bc:x" },
-    { text: `➡️ Next (${selected.length})`, callback_data: "bc:next" },
-  ]);
+  // Arm chatid input immediately so the user can just paste IDs.
+  await saveDraft(fromId, { awaiting_custom: "chatid" });
   await telegramCall("sendMessage", {
     chat_id: chatId,
     text:
-      `📡 <b>Pick target channels</b>\n\n` +
-      `Tap each channel to select it, then press Next.`,
+      `📡 <b>Your channels &amp; groups (${eligible.length})</b>\n\n` +
+      lines.join("\n\n") +
+      `\n\n<b>Send the chat ID(s)</b> you want to post to. Tap an ID above to copy it. Space or comma separated.\n\n` +
+      `Example: <code>${eligible[0]?.chat_id ?? "-1001234567890"}</code>`,
     parse_mode: "HTML",
-    reply_markup: { inline_keyboard: rows },
+    link_preview_options: { is_disabled: true },
+    reply_markup: {
+      inline_keyboard: [[
+        { text: "➡️ Next (0)", callback_data: "bc:next" },
+        { text: "❌ Cancel", callback_data: "bc:x" },
+      ]],
+    },
   });
 }
 
@@ -714,48 +712,9 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     return true;
   }
 
-  // Channel toggle
-  if (op === "t" && draft) {
-    const cid = Number(arg);
-    const cur: number[] = draft.selected_chat_ids ?? [];
-    const next = cur.includes(cid) ? cur.filter((x) => x !== cid) : [...cur, cid];
-    await saveDraft(fromId, { selected_chat_ids: next });
+  // Legacy per-channel toggle (no longer rendered). Ignore politely.
+  if (op === "t") {
     await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
-    // Re-render picker
-    const bot = await getBotIdentity();
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: chats } = await supabaseAdmin
-      .from("telegram_chats")
-      .select("chat_id, title, type, username")
-      .in("type", ["group", "supergroup", "channel"])
-      .order("last_activity_at", { ascending: false })
-      .limit(50);
-    const eligible: Array<{ chat_id: number; title: string; type: string }> = [];
-    await Promise.all((chats as any[]).map(async (c) => {
-      const bs = await getChatMemberStatus(c.chat_id, bot.id);
-      if (bs === "administrator" || bs === "creator") {
-        eligible.push({ chat_id: c.chat_id, title: c.title ?? c.username ?? `Chat ${c.chat_id}`, type: c.type });
-      }
-    }));
-    const rows: any[][] = eligible.map((c) => {
-      const on = next.includes(c.chat_id);
-      const icon = c.type === "channel" ? "📢" : "👥";
-      return [{ text: `${on ? "✅" : "◻️"} ${icon} ${c.title.slice(0, 40)}`, callback_data: `bc:t:${c.chat_id}` }];
-    });
-    rows.push([
-      { text: "🎯 Pick by ID", callback_data: "bc:byid" },
-    ]);
-    rows.push([
-      { text: "❌ Cancel", callback_data: "bc:x" },
-      { text: `➡️ Next (${next.length})`, callback_data: "bc:next" },
-    ]);
-    try {
-      await telegramCall("editMessageReplyMarkup", {
-        chat_id: chatId,
-        message_id: cq.message.message_id,
-        reply_markup: { inline_keyboard: rows },
-      });
-    } catch { /* ignore */ }
     return true;
   }
 
