@@ -729,14 +729,6 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
       return [{ text: `${on ? "✅" : "◻️"} ${icon} ${c.title.slice(0, 40)}`, callback_data: `bc:t:${c.chat_id}` }];
     });
     rows.push([
-      { text: "☑️ All", callback_data: "bc:all" },
-      { text: "🔞 Adult", callback_data: "bc:pre:adult" },
-      { text: "📚 Manga", callback_data: "bc:pre:manga" },
-    ]);
-    rows.push([
-      { text: "🔞+📚 Adult & Manga", callback_data: "bc:pre:both" },
-    ]);
-    rows.push([
       { text: "🎯 Pick by ID", callback_data: "bc:byid" },
     ]);
     rows.push([
