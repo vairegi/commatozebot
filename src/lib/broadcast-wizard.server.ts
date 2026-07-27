@@ -70,8 +70,9 @@ export async function handleBroadcastCommand(args: {
   chatId: number;
   chatType: string;
   argText?: string;
+  replyTo?: any;
 }): Promise<boolean> {
-  const { cmd, fromId, fromName, chatId, chatType, argText } = args;
+  const { cmd, fromId, fromName, chatId, chatType, argText, replyTo } = args;
   if (
     cmd !== "/post" &&
     cmd !== "/crosspost" &&
@@ -126,6 +127,19 @@ export async function handleBroadcastCommand(args: {
       reply_markup: null,
       mode,
     });
+    // If /post was sent as a reply to a message, use that message as the content immediately.
+    if (replyTo && replyTo.message_id && replyTo.chat?.id) {
+      await saveDraft(fromId, {
+        source_chat_id: replyTo.chat.id,
+        source_message_id: replyTo.message_id,
+        preview_text: previewOf(replyTo),
+        source_message_json: replyTo,
+        step: "awaiting_channels",
+        selected_chat_ids: [],
+      });
+      await promptChannels(fromId, chatId);
+      return true;
+    }
     const label = mode === "forward"
       ? "🔁 <b>New crosspost</b> (forwards with 'forwarded from' header)"
       : "📝 <b>New broadcast</b> (clean copy, no forward header)";

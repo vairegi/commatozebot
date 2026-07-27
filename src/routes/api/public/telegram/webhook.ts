@@ -834,6 +834,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 chatId: chat.id,
                 chatType: chat.type,
                 argText: text,
+                replyTo: message.reply_to_message,
               });
               if (handled) return Response.json({ ok: true });
             }
