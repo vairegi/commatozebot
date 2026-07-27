@@ -1312,15 +1312,86 @@ async function handleChatListCommands(args: {
         ? "manga"
         : null;
 
-  if (listCmd) {
+  // /lists — show all lists with counts
+  if (cmd === "/lists") {
+    const { data: rows } = await supabaseAdmin
+      .from("chat_lists")
+      .select("category");
+    if (!rows?.length) {
+      await send(
+        "📭 No channel lists yet.\nCreate one with /addtolist <name> <chat_id>\nExample: /addtolist anime -1001234567890",
+      );
+      return;
+    }
+    const counts = new Map<string, number>();
+    for (const r of rows as Array<{ category: string }>) {
+      counts.set(r.category, (counts.get(r.category) ?? 0) + 1);
+    }
+    const sorted = [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const lines = sorted.map(
+      ([name, n]) => `• <b>${escapeHtml(name)}</b> — ${n} channel${n === 1 ? "" : "s"}  <code>/showlist ${name}</code>`,
+    );
+    await send(
+      `📚 <b>Channel lists (${sorted.length})</b>\n\n${lines.join("\n")}\n\n` +
+        `Add: <code>/addtolist &lt;name&gt; &lt;chat_id&gt;</code>\n` +
+        `Remove: <code>/removefromlist &lt;name&gt; &lt;chat_id&gt;</code>\n` +
+        `Delete whole list: <code>/dellist &lt;name&gt;</code>`,
+      { parse_mode: "HTML", disable_web_page_preview: true },
+    );
+    return;
+  }
+
+  // /showlist <name> — resolve name from args, then fall through to list renderer
+  let showList: string | null = listCmd;
+  if (cmd === "/showlist") {
+    const name = argText.replace(/^\/\S+\s*/, "").trim().toLowerCase();
+    if (!name) {
+      await send("Usage: /showlist <name>\nSee /lists for all lists.");
+      return;
+    }
+    if (!/^[a-z0-9_]{1,30}$/.test(name)) {
+      await send("❌ List name must be 1-30 chars: letters, digits, underscore.");
+      return;
+    }
+    showList = name;
+  }
+
+  // /dellist <name> — delete entire list
+  if (cmd === "/dellist") {
+    const name = argText.replace(/^\/\S+\s*/, "").trim().toLowerCase();
+    if (!name) {
+      await send("Usage: /dellist <name>");
+      return;
+    }
+    const { data: existing } = await supabaseAdmin
+      .from("chat_lists")
+      .select("chat_id")
+      .eq("category", name);
+    if (!existing?.length) {
+      await send(`📭 List <b>${escapeHtml(name)}</b> does not exist.`, { parse_mode: "HTML" });
+      return;
+    }
+    const { error } = await supabaseAdmin.from("chat_lists").delete().eq("category", name);
+    if (error) {
+      await send(`❌ Failed: ${error.message}`);
+      return;
+    }
+    await send(
+      `🗑 Deleted list <b>${escapeHtml(name)}</b> (${existing.length} channel${existing.length === 1 ? "" : "s"} removed).`,
+      { parse_mode: "HTML" },
+    );
+    return;
+  }
+
+  if (showList) {
     const { data: rows } = await supabaseAdmin
       .from("chat_lists")
       .select("chat_id, created_at")
-      .eq("category", listCmd)
+      .eq("category", showList)
       .order("created_at", { ascending: true });
     if (!rows?.length) {
       await send(
-        `📭 The ${listCmd} list is empty.\nAdd channels with /addtolist ${listCmd} <chat_id> [chat_id …]`,
+        `📭 The ${showList} list is empty.\nAdd channels with /addtolist ${showList} <chat_id> [chat_id …]`,
       );
       return;
     }
@@ -1335,7 +1406,7 @@ async function handleChatListCommands(args: {
     const skipped = rows.length - activeRows.length;
     if (!activeRows.length) {
       await send(
-        `📭 I'm no longer admin in any channel on the ${listCmd} list (${skipped} skipped).\nRemove them with /removefromlist ${listCmd} <chat_id>`,
+        `📭 I'm no longer admin in any channel on the ${showList} list (${skipped} skipped).\nRemove them with /removefromlist ${showList} <chat_id>`,
       );
       return;
     }
@@ -1345,9 +1416,10 @@ async function handleChatListCommands(args: {
       .select("chat_id, title, username, type")
       .in("chat_id", ids);
     const byId = new Map<number, any>((chats ?? []).map((c: any) => [Number(c.chat_id), c]));
-    const emoji = listCmd === "adult" ? "🔞" : "📚";
+    const emoji = showList === "adult" ? "🔞" : showList === "manga" ? "📚" : "📁";
+    const labelTitle = showList.charAt(0).toUpperCase() + showList.slice(1);
     const header =
-      `${emoji} <b>${listCmd === "adult" ? "Adult" : "Manga"} channels (${activeRows.length})</b>` +
+      `${emoji} <b>${escapeHtml(labelTitle)} channels (${activeRows.length})</b>` +
       (skipped ? `\n<i>${skipped} hidden — bot is no longer admin.</i>` : "");
     const lines = await Promise.all(
       activeRows.map(async (r: any, i: number) => {
@@ -1393,9 +1465,9 @@ async function handleChatListCommands(args: {
   const rest = argText.replace(/^\/\S+\s*/, "").trim();
   const parts = rest.split(/\s+/).filter(Boolean);
   const category = (parts.shift() ?? "").toLowerCase();
-  if (category !== "adult" && category !== "manga") {
+  if (!/^[a-z0-9_]{1,30}$/.test(category)) {
     await send(
-      `Usage:\n${cmd} <adult|manga> <chat_id> [chat_id …]\n\nExample: ${cmd} adult -1001710860595 -1002298797194`,
+      `Usage:\n${cmd} <list_name> <chat_id> [chat_id …]\n\nList name: 1-30 chars, letters/digits/underscore.\nExample: ${cmd} anime -1001710860595 -1002298797194\n\nSee all lists: /lists`,
     );
     return;
   }
@@ -1422,7 +1494,8 @@ async function handleChatListCommands(args: {
       return;
     }
     await send(
-      `✅ Added ${ids.length} chat${ids.length === 1 ? "" : "s"} to the ${category} list.\nSee /${category}channels`,
+      `✅ Added ${ids.length} chat${ids.length === 1 ? "" : "s"} to the <b>${escapeHtml(category)}</b> list.\nView it: <code>/showlist ${escapeHtml(category)}</code>`,
+      { parse_mode: "HTML" },
     );
     return;
   }
@@ -1438,7 +1511,8 @@ async function handleChatListCommands(args: {
     return;
   }
   await send(
-    `🗑 Removed ${ids.length} chat${ids.length === 1 ? "" : "s"} from the ${category} list.`,
+    `🗑 Removed ${ids.length} chat${ids.length === 1 ? "" : "s"} from the <b>${escapeHtml(category)}</b> list.`,
+    { parse_mode: "HTML" },
   );
 }
 
