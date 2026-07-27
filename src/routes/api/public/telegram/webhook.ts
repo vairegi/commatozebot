@@ -849,6 +849,9 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               cmd === "/adultchannel" ||
               cmd === "/mangachannels" ||
               cmd === "/mangachannel" ||
+              cmd === "/lists" ||
+              cmd === "/showlist" ||
+              cmd === "/dellist" ||
               cmd === "/addtolist" ||
               cmd === "/removefromlist" ||
               cmd === "/rmfromlist"
