@@ -855,6 +855,8 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               cmd === "/showlist" ||
               cmd === "/dellist" ||
               cmd === "/addtolist" ||
+              cmd === "/createlist" ||
+              cmd === "/newlist" ||
               cmd === "/removefromlist" ||
               cmd === "/rmfromlist"
             ) {
@@ -1476,6 +1478,44 @@ async function handleChatListCommands(args: {
   const ids = parts
     .map((p) => Number(p))
     .filter((n) => Number.isFinite(n) && n !== 0);
+  if (cmd === "/createlist" || cmd === "/newlist") {
+    const { data: existing } = await supabaseAdmin
+      .from("chat_lists")
+      .select("chat_id")
+      .eq("category", category);
+    if (existing?.length) {
+      await send(
+        `⚠️ List <b>${escapeHtml(category)}</b> already exists with ${existing.length} channel${existing.length === 1 ? "" : "s"}.\nView: <code>/showlist ${escapeHtml(category)}</code>`,
+        { parse_mode: "HTML" },
+      );
+      return;
+    }
+    if (!ids.length) {
+      await send(
+        `✅ List name <b>${escapeHtml(category)}</b> is available.\n\nAdd channels to create it:\n<code>/addtolist ${escapeHtml(category)} &lt;chat_id&gt; [chat_id …]</code>\n\nRun /channels to see IDs.`,
+        { parse_mode: "HTML" },
+      );
+      return;
+    }
+    const rows = ids.map((chat_id) => ({
+      category,
+      chat_id,
+      added_by: fromId,
+      added_by_name: fromName,
+    }));
+    const { error } = await supabaseAdmin
+      .from("chat_lists")
+      .upsert(rows, { onConflict: "category,chat_id" });
+    if (error) {
+      await send(`❌ Failed: ${error.message}`);
+      return;
+    }
+    await send(
+      `🆕 Created list <b>${escapeHtml(category)}</b> with ${ids.length} channel${ids.length === 1 ? "" : "s"}.\nView: <code>/showlist ${escapeHtml(category)}</code>\nAdd more: <code>/addtolist ${escapeHtml(category)} &lt;chat_id&gt;</code>`,
+      { parse_mode: "HTML" },
+    );
+    return;
+  }
   if (!ids.length) {
     await send(`Provide at least one chat_id. Run /channels to see IDs.`);
     return;
