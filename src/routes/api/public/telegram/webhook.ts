@@ -743,58 +743,19 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
             if (cmd === "/start" || cmd === "/help") {
               await telegramCall("sendMessage", {
                 chat_id: chat.id,
-                text:
-                  "🤖 Group Management Bot\n\nCommands:\n" +
-                  "/rules — show group rules\n" +
-                  "/ping — check I'm alive\n" +
-                  "/id — show your Telegram ID\n\n" +
-                  "/whoami — show your bot role\n\n" +
-                  "In private chat:\n" +
-                  "/channels — list groups & channels where I am admin\n\n" +
-                  "/leave [chat_id] — make me leave a chat (admins only)\n\n" +
-                  "/invite <chat_id> — get an invite link for a chat (bot admins)\n\n" +
-                  "/stats — global bot stats (bot admins)\n\n" +
-                  "📣 Broadcast (bot admins, DM only):\n" +
-                  "/post — start a broadcast wizard (send/forward the post → pick channels → timing → auto-delete)\n" +
-                  "/crosspost — same wizard but forwards with the 'forwarded from' header\n" +
-                  "/broadcasts — recent broadcasts, cancel pending, cancel auto-delete\n" +
-                  "/editpost <broadcast_id> — replace a sent broadcast's content across every target channel\n" +
-                  "/buttons — list your saved button presets\n" +
-                  "/savebtn <name> — save an inline-button preset (URL buttons under posts)\n" +
-                  "/delbtn <name> — delete a button preset\n" +
-                  "/cancel — abort current wizard\n\n" +
-                  "☢️ Nuke (super admins, DM):\n" +
-                  "/nuke — delete your latest broadcast from every channel it went to\n" +
-                  "/nuke <broadcast_id> — target a specific broadcast\n\n" +
-                  "📚 Templates (bot admins, DM):\n" +
-                  "/savetpl <name> — reply to a message to save it as a template\n" +
-                  "/templates — list saved templates\n" +
-                  "/deltpl <name> — delete a template\n" +
-                  "/posttpl <name> — start a broadcast from a saved template\n\n" +
-                  "😀 Reactions (DM only, bot admins):\n" +
-                  "/react on|off — auto-react to every message you send me in DM with a random emoji\n\n" +
-                  "💬 Channel comments (bot admins):\n" +
-                  "/comment <channel_id> <message_id> <text> — post a comment under a channel post via its linked discussion group\n\n" +
-                  "Bot admins (people allowed to use this bot):\n" +
-                  "/addadmin <user_id> [super] — grant bot access (super = super admin, super admins only)\n" +
-                  "/radmin <user_id> — revoke bot access (super admins only for other super admins)\n" +
-                  "/listadmins — list bot admins\n" +
-                  "(First caller becomes the owner 👑 automatically.)\n\n" +
-                  "📚 Channel lists (bot admins, DM):\n" +
-                  "/lists — show all channel lists with counts\n" +
-                  "/showlist <name> — show channels in a list\n" +
-                  "/createlist <name> [chat_id …] — create a new empty or seeded list\n" +
-                  "/addtolist <name> <chat_id> [chat_id …] — add channels (creates list if new)\n" +
-                  "/removefromlist <name> <chat_id> [chat_id …] — remove channels\n" +
-                  "/dellist <name> — delete an entire list\n" +
-                  "List name = 1-30 chars, letters/digits/underscore. Examples: anime, news, vip.\n" +
-                  "Shortcuts: /adultchannels, /mangachannels. In /post you can pick All, Adult, or Manga.\n\n" +
-                  "🗄 Backup (super admins, DM):\n" +
-                  "/backup — DM you a JSON backup of all app data now\n" +
-                  "/restore — upload a backup JSON as a document with caption /restore to restore\n" +
-                  "(A weekly backup is also DM'd automatically.)\n\n" +
-                  "Admins can manage this group from the web dashboard.",
+                text: HELP_COMPACT,
+                parse_mode: "HTML",
+                link_preview_options: { is_disabled: true },
               });
+            } else if (cmd === "/description" || cmd === "/desc" || cmd === "/commands") {
+              for (const chunk of chunkText(HELP_DETAILED, 3800)) {
+                await telegramCall("sendMessage", {
+                  chat_id: chat.id,
+                  text: chunk,
+                  parse_mode: "HTML",
+                  link_preview_options: { is_disabled: true },
+                });
+              }
             } else if (cmd === "/ping") {
               await telegramCall("sendMessage", { chat_id: chat.id, text: "pong 🏓" });
             } else if (cmd === "/id") {
