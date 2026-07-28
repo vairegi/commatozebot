@@ -1250,7 +1250,14 @@ async function saveButtonPresetCommand(fromId: number, chatId: number, argText: 
       chat_id: chatId,
       parse_mode: "HTML",
       text:
-        "🔘 <b>Save button preset</b>\n\nReply with:\n<pre>preset name\nLabel - https://url | Label2 - https://url2\nRow2 - https://url</pre>",
+        "🔘 <b>Save button preset — you can add as many buttons as you like</b>\n\n" +
+        "Reply with the preset name on line 1, then one or more button rows:\n" +
+        "• Each button: <code>Label - https://url</code>\n" +
+        "• <code>|</code> = same row, new line = new row\n\n" +
+        "<pre>my_preset\n" +
+        "Channel - https://t.me/mychannel | Bot - https://t.me/mybot\n" +
+        "Manga - https://t.me/manga | Anime - https://t.me/anime\n" +
+        "Support - https://t.me/support</pre>",
     });
     return;
   }
