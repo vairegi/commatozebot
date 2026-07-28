@@ -140,6 +140,75 @@ export type Database = {
         }
         Relationships: []
       }
+      broadcast_recurrences: {
+        Row: {
+          active: boolean
+          auto_delete_seconds: number | null
+          created_at: string
+          created_by: number
+          created_by_name: string | null
+          cron_expr: string
+          id: string
+          last_error: string | null
+          last_run_at: string | null
+          mode: string
+          next_run_at: string
+          preview_text: string | null
+          reply_markup: Json | null
+          run_count: number
+          source_chat_id: number
+          source_message_id: number
+          spec_kind: string
+          spec_text: string
+          target_chat_ids: number[]
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          auto_delete_seconds?: number | null
+          created_at?: string
+          created_by: number
+          created_by_name?: string | null
+          cron_expr: string
+          id?: string
+          last_error?: string | null
+          last_run_at?: string | null
+          mode?: string
+          next_run_at: string
+          preview_text?: string | null
+          reply_markup?: Json | null
+          run_count?: number
+          source_chat_id: number
+          source_message_id: number
+          spec_kind: string
+          spec_text: string
+          target_chat_ids?: number[]
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          auto_delete_seconds?: number | null
+          created_at?: string
+          created_by?: number
+          created_by_name?: string | null
+          cron_expr?: string
+          id?: string
+          last_error?: string | null
+          last_run_at?: string | null
+          mode?: string
+          next_run_at?: string
+          preview_text?: string | null
+          reply_markup?: Json | null
+          run_count?: number
+          source_chat_id?: number
+          source_message_id?: number
+          spec_kind?: string
+          spec_text?: string
+          target_chat_ids?: number[]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       broadcast_targets: {
         Row: {
           broadcast_id: string
@@ -235,6 +304,7 @@ export type Database = {
           id: string
           mode: string
           preview_text: string | null
+          recurrence_id: string | null
           reply_markup: Json | null
           scheduled_at: string | null
           sent_at: string | null
@@ -251,6 +321,7 @@ export type Database = {
           id?: string
           mode?: string
           preview_text?: string | null
+          recurrence_id?: string | null
           reply_markup?: Json | null
           scheduled_at?: string | null
           sent_at?: string | null
@@ -267,6 +338,7 @@ export type Database = {
           id?: string
           mode?: string
           preview_text?: string | null
+          recurrence_id?: string | null
           reply_markup?: Json | null
           scheduled_at?: string | null
           sent_at?: string | null
@@ -275,7 +347,15 @@ export type Database = {
           status?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "broadcasts_recurrence_id_fkey"
+            columns: ["recurrence_id"]
+            isOneToOne: false
+            referencedRelation: "broadcast_recurrences"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       chat_lists: {
         Row: {
@@ -390,6 +470,8 @@ export type Database = {
       }
       telegram_chats: {
         Row: {
+          bot_permissions: Json | null
+          bot_permissions_checked_at: string | null
           chat_id: number
           first_seen_at: string
           last_activity_at: string
@@ -403,6 +485,8 @@ export type Database = {
           welcome_message: string | null
         }
         Insert: {
+          bot_permissions?: Json | null
+          bot_permissions_checked_at?: string | null
           chat_id: number
           first_seen_at?: string
           last_activity_at?: string
@@ -416,6 +500,8 @@ export type Database = {
           welcome_message?: string | null
         }
         Update: {
+          bot_permissions?: Json | null
+          bot_permissions_checked_at?: string | null
           chat_id?: number
           first_seen_at?: string
           last_activity_at?: string

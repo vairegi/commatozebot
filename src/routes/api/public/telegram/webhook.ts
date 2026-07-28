@@ -74,6 +74,10 @@ const HELP_COMPACT =
   "/templates • /savetpl &lt;name&gt; • /deltpl &lt;name&gt; • /posttpl &lt;name&gt;\n\n" +
   "💬 <b>Engagement</b>\n" +
   "/react on|off • /comment &lt;channel_id&gt; &lt;message_id&gt; &lt;text&gt;\n\n" +
+  "🔁 <b>Recurring</b>\n" +
+  "/recur &lt;broadcast_id&gt; &lt;spec&gt; • /recurring • /delrecur &lt;id&gt;\n\n" +
+  "🔐 <b>Permissions</b>\n" +
+  "/permissions [chat_id] • /checkperms\n\n" +
   "☢️ <b>Nuke</b>\n" +
   "/nuke • /nuke &lt;id&gt;\n\n" +
   "🗄 <b>Backup</b>\n" +
@@ -127,6 +131,14 @@ const HELP_DETAILED =
   "☢️ <b>Nuke</b> (super admins, DM)\n" +
   "/nuke — delete your latest broadcast from every channel it went to.\n" +
   "/nuke &lt;broadcast_id&gt; — target a specific broadcast.\n\n" +
+  "🔁 <b>Recurring</b> (bot admins, DM)\n" +
+  "/recur &lt;broadcast_id&gt; &lt;spec&gt; — turn any existing broadcast into a repeating schedule. Specs: <code>daily HH:MM</code>, <code>weekly &lt;day&gt; HH:MM</code>, <code>monthly &lt;day&gt; HH:MM</code> (all IST), or <code>cron &lt;expr&gt;</code> (UTC).\n" +
+  "/recurring — list your recurring posts.\n" +
+  "/delrecur &lt;id&gt; — remove a recurring schedule.\n\n" +
+  "🔐 <b>Permissions monitor</b> (bot admins, DM)\n" +
+  "/permissions — overview of the bot's admin rights across every tracked chat.\n" +
+  "/permissions &lt;chat_id&gt; — detailed permissions for one chat.\n" +
+  "/checkperms — force a full permission check now. (Runs automatically every 6h and DMs alerts when the bot loses rights.)\n\n" +
   "🗄 <b>Backup</b> (super admins, DM)\n" +
   "/backup — DM you a JSON backup of all app data right now. A weekly backup is also sent automatically.\n" +
   "/restore — upload a backup JSON as a document with caption <code>/restore</code> to restore.\n\n" +
@@ -929,6 +941,25 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 replyChatId: chat.id,
                 telegramCall,
                 supabaseAdmin,
+              });
+            } else if (cmd === "/recur" || cmd === "/recurring" || cmd === "/delrecur") {
+              const { handleRecurringCommand } = await import("@/lib/recurring-commands.server");
+              await handleRecurringCommand({
+                cmd,
+                fromId: from.id,
+                fromName: from.first_name || from.username || `user ${from.id}`,
+                argText: text,
+                chatId: chat.id,
+                chatType: chat.type,
+              });
+            } else if (cmd === "/permissions" || cmd === "/checkperms") {
+              const { handlePermissionsCommand } = await import("@/lib/permissions-commands.server");
+              await handlePermissionsCommand({
+                cmd,
+                fromId: from.id,
+                argText: text,
+                chatId: chat.id,
+                chatType: chat.type,
               });
             } else if (
               cmd === "/adultchannels" ||
