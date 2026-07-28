@@ -611,6 +611,8 @@ export async function tickBroadcasts(): Promise<{
   sent: number;
   deleted: number;
   deleteFailed: number;
+  recurringFired: number;
+  recurringFailed: number;
 }> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const nowIso = new Date().toISOString();
@@ -683,5 +685,17 @@ export async function tickBroadcasts(): Promise<{
     }
   }
 
-  return { sent, deleted, deleteFailed };
+  // 3) recurring broadcasts
+  const { tickRecurrences } = await import("./recurring.server");
+  let recurringFired = 0;
+  let recurringFailed = 0;
+  try {
+    const r = await tickRecurrences();
+    recurringFired = r.fired;
+    recurringFailed = r.failed;
+  } catch (e) {
+    console.error("tickRecurrences failed", e);
+  }
+
+  return { sent, deleted, deleteFailed, recurringFired, recurringFailed };
 }
