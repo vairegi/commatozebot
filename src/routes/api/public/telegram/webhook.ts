@@ -942,6 +942,25 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 telegramCall,
                 supabaseAdmin,
               });
+            } else if (cmd === "/recur" || cmd === "/recurring" || cmd === "/delrecur") {
+              const { handleRecurringCommand } = await import("@/lib/recurring-commands.server");
+              await handleRecurringCommand({
+                cmd,
+                fromId: from.id,
+                fromName: from.first_name || from.username || `user ${from.id}`,
+                argText: text,
+                chatId: chat.id,
+                chatType: chat.type,
+              });
+            } else if (cmd === "/permissions" || cmd === "/checkperms") {
+              const { handlePermissionsCommand } = await import("@/lib/permissions-commands.server");
+              await handlePermissionsCommand({
+                cmd,
+                fromId: from.id,
+                argText: text,
+                chatId: chat.id,
+                chatType: chat.type,
+              });
             } else if (
               cmd === "/adultchannels" ||
               cmd === "/adultchannel" ||
