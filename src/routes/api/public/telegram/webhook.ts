@@ -67,7 +67,7 @@ const HELP_COMPACT =
   "📚 <b>Channel lists</b>\n" +
   "/lists • /showlist &lt;name&gt; • /createlist &lt;name&gt; [chat_id…] • /addtolist &lt;name&gt; &lt;chat_id…&gt; • /removefromlist &lt;name&gt; &lt;chat_id…&gt; • /dellist &lt;name&gt; • /adultchannels • /mangachannels\n\n" +
   "📣 <b>Broadcast</b>\n" +
-  "/post • /crosspost • /broadcasts • /editpost &lt;id&gt; • /cancel\n\n" +
+  "/post • /post &lt;n&gt; • /crosspost • /broadcasts • /listpost • /dltpost &lt;n&gt; • /editpost &lt;id&gt; • /cancel\n\n" +
   "🔘 <b>Buttons</b>\n" +
   "/buttons • /savebtn &lt;name&gt; • /delbtn &lt;name&gt;\n\n" +
   "📝 <b>Templates</b>\n" +
@@ -112,6 +112,9 @@ const HELP_DETAILED =
   "Name rules: 1–30 chars, letters/digits/underscore.\n\n" +
   "📣 <b>Broadcast</b> (bot admins, DM)\n" +
   "/post — start the broadcast wizard: content → channels → mode → buttons → auto-delete → schedule → confirm.\n" +
+  "/post &lt;number&gt; — reuse a previous post from /listpost (jumps into the channel picker).\n" +
+  "/listpost — numbered list of your last 20 broadcasts.\n" +
+  "/dltpost &lt;number&gt; — remove a post from your history (does not delete already-sent channel messages; use /nuke for that).\n" +
   "/crosspost — same wizard but forwards with the “forwarded from” header.\n" +
   "/broadcasts — recent broadcasts with ✏️ Edit / 💣 Nuke buttons.\n" +
   "/editpost &lt;broadcast_id&gt; — replace a sent broadcast's content across every target channel.\n" +
