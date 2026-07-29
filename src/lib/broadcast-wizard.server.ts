@@ -321,8 +321,9 @@ export async function handleBroadcastMessage(args: {
     return true;
   }
 
-  // Awaiting chat IDs typed manually
-  if (draft.awaiting_custom === "chatid" && message.text) {
+  // Awaiting chat IDs typed manually — only while still on the channel-picking step,
+  // otherwise a leftover "chatid" flag would swallow custom schedule/auto-delete text.
+  if (draft.awaiting_custom === "chatid" && draft.step === "awaiting_channels" && message.text) {
     const ids = Array.from(
       new Set(
         message.text
@@ -852,7 +853,7 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Pick at least one channel.", show_alert: true });
       return true;
     }
-    await saveDraft(fromId, { step: "awaiting_timing" });
+    await saveDraft(fromId, { step: "awaiting_timing", awaiting_custom: null });
     await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
     await promptTiming(fromId, chatId);
     return true;
