@@ -510,8 +510,8 @@ async function handleNukeCommand(args: {
       .from("broadcasts")
       .select("id, preview_text, sent_at, status, created_by_name")
       .eq("created_by", fromId)
-      .in("status", ["sent", "partial"])
-      .order("sent_at", { ascending: false })
+      .in("status", ["sent", "partial", "sending"])
+      .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (!data) {
