@@ -75,7 +75,7 @@ const HELP_COMPACT =
   "💬 <b>Engagement</b>\n" +
   "/react on|off • /comment &lt;channel_id&gt; &lt;message_id&gt; &lt;text&gt;\n\n" +
   "🔁 <b>Recurring</b>\n" +
-  "/recur &lt;n|id&gt; &lt;spec&gt; [in&lt;time&gt;] • /listrecur • /dltrecur &lt;n|id&gt;\n\n" +
+  "/recur &lt;n|id&gt; &lt;spec&gt; [in&lt;time&gt;] • /listrecur • /pauserecur &lt;n&gt; • /resumerecur &lt;n&gt; • /dltrecur &lt;n|id&gt;\n\n" +
   "🔐 <b>Permissions</b>\n" +
   "/permissions [chat_id] • /checkperms\n\n" +
   "☢️ <b>Nuke</b>\n" +
@@ -138,6 +138,8 @@ const HELP_DETAILED =
   "/recur &lt;number|broadcast_id&gt; &lt;spec&gt; [in&lt;time&gt;] — turn any existing broadcast into a repeating schedule. The number comes from /listpost. Specs: <code>daily HH:MM</code>, <code>weekly &lt;day&gt; HH:MM</code>, <code>monthly &lt;day&gt; HH:MM</code> (all IST), or <code>cron &lt;expr&gt;</code> (UTC). Optional trailing <code>in5m</code> / <code>in2h</code> / <code>in1d</code> sets auto-delete (max 48h), overriding the template.\n" +
   "Example: <code>/recur 1 daily 09:00 in5m</code>\n" +
   "/listrecur — numbered list of your recurring posts.\n" +
+  "/pauserecur &lt;number|id&gt; — pause a recurring schedule (keeps it in the list).\n" +
+  "/resumerecur &lt;number|id&gt; — resume a paused schedule; next run is recomputed.\n" +
   "/dltrecur &lt;number|id&gt; — remove a recurring schedule.\n\n" +
   "🔐 <b>Permissions monitor</b> (bot admins, DM)\n" +
   "/permissions — overview of the bot's admin rights across every tracked chat.\n" +
@@ -1108,7 +1110,9 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               cmd === "/recurring" ||
               cmd === "/listrecur" ||
               cmd === "/delrecur" ||
-              cmd === "/dltrecur"
+              cmd === "/dltrecur" ||
+              cmd === "/pauserecur" ||
+              cmd === "/resumerecur"
             ) {
               const { handleRecurringCommand } = await import("@/lib/recurring-commands.server");
               await handleRecurringCommand({
