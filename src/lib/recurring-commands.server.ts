@@ -16,6 +16,57 @@ async function isBotAdmin(supabaseAdmin: any, fromId: number): Promise<boolean> 
   return !!data;
 }
 
+/** Same ordering as /listpost so numbers line up. */
+async function fetchUserBroadcasts(supabaseAdmin: any, fromId: number) {
+  const { data } = await supabaseAdmin
+    .from("broadcasts")
+    .select("id, source_chat_id, source_message_id, preview_text, mode, reply_markup, auto_delete_seconds, created_by, sent_at, scheduled_at, created_at, status")
+    .eq("created_by", fromId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  return (data ?? []) as any[];
+}
+
+async function fetchUserRecurrences(supabaseAdmin: any, fromId: number) {
+  const { data } = await supabaseAdmin
+    .from("broadcast_recurrences")
+    .select("id, spec_text, active, next_run_at, last_run_at, run_count, preview_text, target_chat_ids, last_error, created_at, auto_delete_seconds")
+    .eq("created_by", fromId)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  return (data ?? []) as any[];
+}
+
+const DUR_UNITS: Record<string, number> = {
+  s: 1, sec: 1, secs: 1,
+  m: 60, min: 60, mins: 60,
+  h: 3600, hr: 3600, hrs: 3600,
+  d: 86400,
+};
+
+/**
+ * Extract an optional trailing auto-delete override like "in5m", "in 2h", "in5min".
+ * Returns { rest, deleteSeconds }. deleteSeconds is null when not present.
+ */
+function extractDeleteToken(spec: string): { rest: string; deleteSeconds: number | null } {
+  const m = spec.match(/\s+in\s*(\d+)\s*(s|sec|secs|m|min|mins|h|hr|hrs|d)\s*$/i);
+  if (!m) return { rest: spec, deleteSeconds: null };
+  const n = parseInt(m[1], 10);
+  const unit = m[2].toLowerCase();
+  const secs = n * (DUR_UNITS[unit] ?? 0);
+  if (!Number.isFinite(secs) || secs <= 0) return { rest: spec, deleteSeconds: null };
+  // Hard cap 48h to match broadcast wizard.
+  const capped = Math.min(secs, 48 * 3600);
+  return { rest: spec.slice(0, m.index!).trimEnd(), deleteSeconds: capped };
+}
+
+function fmtDuration(secs: number): string {
+  if (secs % 86400 === 0) return `${secs / 86400}d`;
+  if (secs % 3600 === 0) return `${secs / 3600}h`;
+  if (secs % 60 === 0) return `${secs / 60}m`;
+  return `${secs}s`;
+}
+
 /** Returns true if the command was handled. */
 export async function handleRecurringCommand(args: {
   cmd: string;
@@ -26,7 +77,8 @@ export async function handleRecurringCommand(args: {
   chatType: string;
 }): Promise<boolean> {
   const { cmd, fromId, fromName, argText, chatId, chatType } = args;
-  if (!["/recur", "/recurring", "/delrecur"].includes(cmd)) return false;
+  const RECUR_CMDS = ["/recur", "/recurring", "/listrecur", "/delrecur", "/dltrecur"];
+  if (!RECUR_CMDS.includes(cmd)) return false;
 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   if (!(await isBotAdmin(supabaseAdmin, fromId))) {
@@ -38,13 +90,13 @@ export async function handleRecurringCommand(args: {
     return true;
   }
 
-  if (cmd === "/recurring") {
+  if (cmd === "/listrecur" || cmd === "/recurring") {
     await listRecurrences(fromId, chatId);
     return true;
   }
-  if (cmd === "/delrecur") {
-    const id = argText.replace(/^\/delrecur(@\S+)?\s*/i, "").trim();
-    await deleteRecurrence(fromId, chatId, id);
+  if (cmd === "/dltrecur" || cmd === "/delrecur") {
+    const rest = argText.replace(/^\/(dltrecur|delrecur)(@\S+)?\s*/i, "").trim();
+    await deleteRecurrence(fromId, chatId, rest);
     return true;
   }
   if (cmd === "/recur") {
@@ -56,14 +108,17 @@ export async function handleRecurringCommand(args: {
 
 const USAGE =
   "🔁 <b>Create a recurring post</b>\n\n" +
-  "<code>/recur &lt;broadcast_id&gt; &lt;spec&gt;</code>\n\n" +
-  "The broadcast is used as the <b>template</b> (its source message, target channels, buttons, mode, and auto-delete are copied).\n\n" +
+  "<code>/recur &lt;number|broadcast_id&gt; &lt;spec&gt; [in&lt;time&gt;]</code>\n\n" +
+  "The number comes from /listpost. The referenced broadcast is used as the <b>template</b> (source message, target channels, buttons, mode).\n\n" +
   "<b>Spec examples</b>\n" +
   "• <code>daily 09:00</code> — every day at 09:00 IST\n" +
   "• <code>weekly mon 21:30</code> — every Monday 21:30 IST\n" +
   "• <code>monthly 1 09:00</code> — 1st of each month, 09:00 IST\n" +
   "• <code>cron 0 9 * * *</code> — advanced 5-field cron (UTC)\n\n" +
-  "See existing schedules with /recurring, remove with /delrecur &lt;id&gt;.";
+  "<b>Optional auto-delete</b> (overrides the template)\n" +
+  "• <code>/recur 1 daily 09:00 in5m</code> — delete each post 5 minutes after it fires\n" +
+  "• Units: <code>s</code>, <code>m</code>, <code>h</code>, <code>d</code>. Max 48h.\n\n" +
+  "See existing schedules with /listrecur, remove with /dltrecur &lt;number|id&gt;.";
 
 async function createRecurrence(fromId: number, fromName: string, chatId: number, argText: string) {
   const rest = argText.replace(/^\/recur(@\S+)?\s*/i, "").trim();
@@ -76,8 +131,9 @@ async function createRecurrence(fromId: number, fromName: string, chatId: number
     await telegramCall("sendMessage", { chat_id: chatId, text: USAGE, parse_mode: "HTML" });
     return;
   }
-  const broadcastId = rest.slice(0, firstSpace).trim();
-  const specText = rest.slice(firstSpace + 1).trim();
+  const idToken = rest.slice(0, firstSpace).trim();
+  const specRaw = rest.slice(firstSpace + 1).trim();
+  const { rest: specText, deleteSeconds: deleteOverride } = extractDeleteToken(specRaw);
 
   let parsed;
   try {
@@ -88,24 +144,40 @@ async function createRecurrence(fromId: number, fromName: string, chatId: number
   }
 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data: bc } = await supabaseAdmin
-    .from("broadcasts")
-    .select("id, source_chat_id, source_message_id, preview_text, mode, reply_markup, auto_delete_seconds, created_by")
-    .eq("id", broadcastId)
-    .maybeSingle();
+
+  // Resolve idToken: positive integer → index into /listpost; otherwise treat as UUID.
+  let bc: any = null;
+  const asNum = Number(idToken);
+  if (/^\d+$/.test(idToken) && Number.isInteger(asNum) && asNum >= 1) {
+    const rows = await fetchUserBroadcasts(supabaseAdmin, fromId);
+    bc = rows[asNum - 1] ?? null;
+    if (!bc) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ No post #${asNum} in your /listpost.` });
+      return;
+    }
+  } else {
+    const { data } = await supabaseAdmin
+      .from("broadcasts")
+      .select("id, source_chat_id, source_message_id, preview_text, mode, reply_markup, auto_delete_seconds, created_by")
+      .eq("id", idToken)
+      .maybeSingle();
+    bc = data;
+  }
   if (!bc) {
-    await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Broadcast not found." });
+    await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Broadcast not found. Use a number from /listpost or a broadcast id." });
     return;
   }
   const { data: targets } = await supabaseAdmin
     .from("broadcast_targets")
     .select("chat_id")
-    .eq("broadcast_id", broadcastId);
+    .eq("broadcast_id", (bc as any).id);
   const chatIds = ((targets as any[]) ?? []).map((t) => Number(t.chat_id));
   if (!chatIds.length) {
     await telegramCall("sendMessage", { chat_id: chatId, text: "❌ That broadcast has no target channels." });
     return;
   }
+
+  const finalDelete = deleteOverride ?? ((bc as any).auto_delete_seconds ?? null);
 
   const next = nextRunAfter(parsed.cron);
   const { data: rec, error } = await supabaseAdmin
@@ -118,7 +190,7 @@ async function createRecurrence(fromId: number, fromName: string, chatId: number
       preview_text: (bc as any).preview_text,
       mode: (bc as any).mode ?? "copy",
       reply_markup: (bc as any).reply_markup ?? null,
-      auto_delete_seconds: (bc as any).auto_delete_seconds,
+      auto_delete_seconds: finalDelete,
       target_chat_ids: chatIds,
       spec_kind: parsed.kind,
       spec_text: parsed.humanText,
@@ -139,50 +211,56 @@ async function createRecurrence(fromId: number, fromName: string, chatId: number
       `ID: <code>${(rec as any).id}</code>\n` +
       `Schedule: ${escapeHtml(parsed.humanText)}\n` +
       `Targets: ${chatIds.length} channel${chatIds.length === 1 ? "" : "s"}\n` +
+      (finalDelete ? `Auto-delete: ${fmtDuration(finalDelete)} after each send\n` : "") +
       `Next run: ${fmtIST(next)}`,
   });
 }
 
 async function listRecurrences(fromId: number, chatId: number) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data } = await supabaseAdmin
-    .from("broadcast_recurrences")
-    .select("id, spec_text, active, next_run_at, last_run_at, run_count, preview_text, target_chat_ids, last_error")
-    .eq("created_by", fromId)
-    .order("created_at", { ascending: false })
-    .limit(30);
-  const rows = (data as any[]) ?? [];
+  const rows = await fetchUserRecurrences(supabaseAdmin, fromId);
   if (!rows.length) {
     await telegramCall("sendMessage", {
       chat_id: chatId,
       parse_mode: "HTML",
-      text: "No recurring posts. Create one with <code>/recur &lt;broadcast_id&gt; daily 09:00</code>",
+      text: "No recurring posts. Create one with <code>/recur &lt;number&gt; daily 09:00</code> (number from /listpost).",
     });
     return;
   }
   const lines = ["🔁 <b>Your recurring posts</b>\n"];
-  for (const r of rows) {
+  rows.forEach((r, i) => {
     const targets = (r.target_chat_ids ?? []).length;
     const state = r.active ? "✅" : "⏸";
     const preview = escapeHtml((r.preview_text ?? "").slice(0, 60));
+    const del = r.auto_delete_seconds ? ` • del ${fmtDuration(r.auto_delete_seconds)}` : "";
     lines.push(
-      `${state} <code>${r.id}</code>\n` +
-      `   ${escapeHtml(r.spec_text)} • ${targets} chat${targets === 1 ? "" : "s"} • ran ${r.run_count}×\n` +
+      `<b>${i + 1}.</b> ${state} <code>${r.id}</code>\n` +
+      `   ${escapeHtml(r.spec_text)} • ${targets} chat${targets === 1 ? "" : "s"} • ran ${r.run_count}×${del}\n` +
       `   next: ${fmtIST(r.next_run_at)}${r.last_run_at ? ` • last: ${fmtIST(r.last_run_at)}` : ""}\n` +
       (preview ? `   <i>${preview}</i>\n` : "") +
       (r.last_error ? `   ⚠ ${escapeHtml(String(r.last_error).slice(0, 100))}\n` : ""),
     );
-  }
-  lines.push("\nRemove with <code>/delrecur &lt;id&gt;</code>.");
+  });
+  lines.push("\nRemove with <code>/dltrecur &lt;number&gt;</code>.");
   await telegramCall("sendMessage", { chat_id: chatId, text: lines.join("\n"), parse_mode: "HTML" });
 }
 
-async function deleteRecurrence(fromId: number, chatId: number, id: string) {
-  if (!id) {
-    await telegramCall("sendMessage", { chat_id: chatId, text: "Usage: <code>/delrecur &lt;id&gt;</code>", parse_mode: "HTML" });
+async function deleteRecurrence(fromId: number, chatId: number, token: string) {
+  if (!token) {
+    await telegramCall("sendMessage", { chat_id: chatId, text: "Usage: <code>/dltrecur &lt;number|id&gt;</code> (number from /listrecur)", parse_mode: "HTML" });
     return;
   }
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  let id = token;
+  if (/^\d+$/.test(token)) {
+    const rows = await fetchUserRecurrences(supabaseAdmin, fromId);
+    const rec = rows[Number(token) - 1];
+    if (!rec) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ No recurring #${token} in your list. Run /listrecur.` });
+      return;
+    }
+    id = rec.id;
+  }
   const { error, count } = await supabaseAdmin
     .from("broadcast_recurrences")
     .delete({ count: "exact" })
