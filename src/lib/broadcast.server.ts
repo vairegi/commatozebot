@@ -652,7 +652,7 @@ export async function tickBroadcasts(): Promise<{
   // 2) auto-delete
   const { data: toDelete } = await supabaseAdmin
     .from("broadcast_targets")
-    .select("id, chat_id, sent_message_id")
+    .select("id, broadcast_id, chat_id, chat_title, sent_message_id")
     .eq("status", "sent")
     .not("delete_at", "is", null)
     .lte("delete_at", nowIso)
@@ -660,6 +660,12 @@ export async function tickBroadcasts(): Promise<{
 
   let deleted = 0;
   let deleteFailed = 0;
+  // Group per-broadcast results so we can DM the creator one summary per broadcast.
+  const perBroadcast = new Map<string, Array<{ chat_id: number; chat_title: string | null; ok: boolean; error?: string }>>();
+  const pushResult = (bid: string, r: { chat_id: number; chat_title: string | null; ok: boolean; error?: string }) => {
+    if (!perBroadcast.has(bid)) perBroadcast.set(bid, []);
+    perBroadcast.get(bid)!.push(r);
+  };
   for (const t of toDelete ?? []) {
     if (!t.sent_message_id) {
       await supabaseAdmin
@@ -667,6 +673,7 @@ export async function tickBroadcasts(): Promise<{
         .update({ status: "delete_failed", error: "no message_id" })
         .eq("id", t.id);
       deleteFailed++;
+      pushResult(String((t as any).broadcast_id), { chat_id: t.chat_id, chat_title: (t as any).chat_title ?? null, ok: false, error: "no message_id" });
       continue;
     }
     try {
@@ -676,13 +683,47 @@ export async function tickBroadcasts(): Promise<{
         .update({ status: "deleted", deleted_at: new Date().toISOString() })
         .eq("id", t.id);
       deleted++;
+      pushResult(String((t as any).broadcast_id), { chat_id: t.chat_id, chat_title: (t as any).chat_title ?? null, ok: true });
     } catch (e: any) {
       await supabaseAdmin
         .from("broadcast_targets")
         .update({ status: "delete_failed", error: e?.message ?? String(e) })
         .eq("id", t.id);
       deleteFailed++;
+      pushResult(String((t as any).broadcast_id), { chat_id: t.chat_id, chat_title: (t as any).chat_title ?? null, ok: false, error: e?.message ?? String(e) });
     }
+  }
+
+  // DM each broadcast creator a deletion summary (always, success or failure).
+  for (const [bid, rows] of perBroadcast) {
+    try {
+      const { data: bc } = await supabaseAdmin
+        .from("broadcasts")
+        .select("created_by")
+        .eq("id", bid)
+        .maybeSingle();
+      const creator = (bc as any)?.created_by;
+      if (!creator) continue;
+      const ok = rows.filter((r) => r.ok).length;
+      const fail = rows.length - ok;
+      const lines = [
+        `🧹 <b>Auto-delete complete</b>`,
+        `✅ ${ok} deleted${fail ? `   ❌ ${fail} failed` : ""}`,
+        "",
+        ...rows.map((r) => {
+          const title = (r.chat_title ?? String(r.chat_id)).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          if (r.ok) return `✅ ${title}`;
+          const err = r.error ? ` — ${r.error.slice(0, 100).replace(/</g, "&lt;")}` : "";
+          return `❌ ${title}${err}`;
+        }),
+      ];
+      await telegramCall("sendMessage", {
+        chat_id: creator,
+        text: lines.join("\n"),
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      });
+    } catch { /* ignore DM failures */ }
   }
 
   // 3) recurring broadcasts
