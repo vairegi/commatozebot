@@ -853,7 +853,7 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Pick at least one channel.", show_alert: true });
       return true;
     }
-    await saveDraft(fromId, { step: "awaiting_timing" });
+    await saveDraft(fromId, { step: "awaiting_timing", awaiting_custom: null });
     await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
     await promptTiming(fromId, chatId);
     return true;
