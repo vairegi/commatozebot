@@ -303,7 +303,7 @@ async function setRecurrenceActive(fromId: number, chatId: number, token: string
     id = rec.id;
   }
 
-  const update: Record<string, unknown> = { active };
+  const update: { active: boolean; next_run_at?: string } = { active };
   // On resume, recompute next_run_at so it doesn't fire immediately for every missed slot.
   if (active) {
     const { data: cur } = await supabaseAdmin
