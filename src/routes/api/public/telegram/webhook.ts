@@ -546,6 +546,139 @@ function formatName(u: { first_name?: string; last_name?: string; username?: str
   return u.first_name || u.username || "there";
 }
 
+// Fetch this admin's recent broadcasts (newest first). Numbers are 1-based against this list.
+async function fetchListPost(supabaseAdmin: any, fromId: number) {
+  const { data } = await supabaseAdmin
+    .from("broadcasts")
+    .select("id, preview_text, status, mode, scheduled_at, sent_at, created_at, source_chat_id, source_message_id, reply_markup")
+    .eq("created_by", fromId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  return (data ?? []) as any[];
+}
+
+async function handleListPost(args: {
+  fromId: number;
+  replyChatId: number;
+  chatType: string;
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  supabaseAdmin: any;
+}) {
+  const { fromId, replyChatId, chatType, telegramCall, supabaseAdmin } = args;
+  const { is } = await isBotAdmin(supabaseAdmin, fromId);
+  if (!is) {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: "❌ Only bot admins can use /listpost." });
+    return;
+  }
+  if (chatType !== "private") {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: "🔒 Use /listpost in a private chat with me." });
+    return;
+  }
+  const rows = await fetchListPost(supabaseAdmin, fromId);
+  if (!rows.length) {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: "You haven't created any broadcasts yet. Use /post to make one." });
+    return;
+  }
+  const lines: string[] = ["🗂 <b>Your recent posts</b>", ""];
+  rows.forEach((r, i) => {
+    const n = i + 1;
+    const badge = r.mode === "forward" ? "🔁" : "📝";
+    const when = r.sent_at ?? r.scheduled_at ?? r.created_at;
+    const preview = escapeHtml((r.preview_text ?? "").slice(0, 70));
+    lines.push(`<b>${n}.</b> ${badge} <b>${r.status}</b> — ${escapeHtml(String(when).slice(0, 16).replace("T", " "))}\n   ${preview}`);
+  });
+  lines.push("", "Reuse: <code>/post &lt;number&gt;</code>", "Delete from history: <code>/dltpost &lt;number&gt;</code>");
+  await telegramCall("sendMessage", { chat_id: replyChatId, text: lines.join("\n"), parse_mode: "HTML" });
+}
+
+async function handleDltPost(args: {
+  fromId: number;
+  argText: string;
+  replyChatId: number;
+  chatType: string;
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  supabaseAdmin: any;
+}) {
+  const { fromId, argText, replyChatId, chatType, telegramCall, supabaseAdmin } = args;
+  const { is } = await isBotAdmin(supabaseAdmin, fromId);
+  if (!is) {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: "❌ Only bot admins can use /dltpost." });
+    return;
+  }
+  if (chatType !== "private") {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: "🔒 Use /dltpost in a private chat with me." });
+    return;
+  }
+  const raw = (argText.trim().split(/\s+/)[1] ?? "").trim();
+  const n = Number(raw);
+  if (!raw || !Number.isInteger(n) || n < 1) {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: "Usage: <code>/dltpost &lt;number&gt;</code>\nSee numbers via /listpost.", parse_mode: "HTML" });
+    return;
+  }
+  const rows = await fetchListPost(supabaseAdmin, fromId);
+  const bc = rows[n - 1];
+  if (!bc) {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: `❌ No post #${n} in your list. Run /listpost.` });
+    return;
+  }
+  await supabaseAdmin.from("broadcast_targets").delete().eq("broadcast_id", bc.id);
+  const { error } = await supabaseAdmin.from("broadcasts").delete().eq("id", bc.id);
+  if (error) {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: `❌ Delete failed: ${error.message}` });
+    return;
+  }
+  await telegramCall("sendMessage", {
+    chat_id: replyChatId,
+    text: `🗑 Removed post #${n} from your history.\n<i>Note: this only clears the record — it does not delete already-sent channel messages. Use /nuke for that.</i>`,
+    parse_mode: "HTML",
+  });
+}
+
+async function handlePostByNumber(args: {
+  fromId: number;
+  n: number;
+  replyChatId: number;
+  chatType: string;
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  supabaseAdmin: any;
+}) {
+  const { fromId, n, replyChatId, chatType, telegramCall, supabaseAdmin } = args;
+  const { is } = await isBotAdmin(supabaseAdmin, fromId);
+  if (!is) {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: "❌ Only bot admins can use /post." });
+    return;
+  }
+  if (chatType !== "private") {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: "🔒 Use /post in a private chat with me." });
+    return;
+  }
+  const rows = await fetchListPost(supabaseAdmin, fromId);
+  const bc = rows[n - 1];
+  if (!bc) {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: `❌ No post #${n} in your list. Run /listpost.` });
+    return;
+  }
+  if (!bc.source_chat_id || !bc.source_message_id) {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: "❌ That post has no source message stored." });
+    return;
+  }
+  const { startBroadcastFromTemplate } = await import("@/lib/broadcast-wizard.server");
+  await telegramCall("sendMessage", {
+    chat_id: replyChatId,
+    text: `♻️ Reusing post #${n}…`,
+  });
+  await startBroadcastFromTemplate({
+    fromId,
+    chatId: replyChatId,
+    template: {
+      source_chat_id: Number(bc.source_chat_id),
+      source_message_id: Number(bc.source_message_id),
+      preview_text: bc.preview_text ?? null,
+      mode: bc.mode ?? "copy",
+    },
+  });
+}
+
 export const Route = createFileRoute("/api/public/telegram/webhook")({
   server: {
     handlers: {
