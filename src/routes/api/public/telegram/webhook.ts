@@ -971,6 +971,30 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
             if (consumed) return Response.json({ ok: true });
 
             // Broadcast commands
+            // /post <number> reuses a previous post from /listpost
+            if (cmd === "/post") {
+              const arg = (text ?? "").trim().split(/\s+/)[1];
+              const asNum = arg ? Number(arg) : NaN;
+              if (arg && Number.isInteger(asNum) && asNum >= 1) {
+                await handlePostByNumber({
+                  fromId: from.id,
+                  n: asNum,
+                  replyChatId: chat.id,
+                  chatType: chat.type,
+                  telegramCall,
+                  supabaseAdmin,
+                });
+                return Response.json({ ok: true });
+              }
+            }
+            if (cmd === "/listpost") {
+              await handleListPost({ fromId: from.id, replyChatId: chat.id, chatType: chat.type, telegramCall, supabaseAdmin });
+              return Response.json({ ok: true });
+            }
+            if (cmd === "/dltpost") {
+              await handleDltPost({ fromId: from.id, argText: text ?? "", replyChatId: chat.id, chatType: chat.type, telegramCall, supabaseAdmin });
+              return Response.json({ ok: true });
+            }
             if (cmd === "/post" || cmd === "/crosspost" || cmd === "/broadcasts" || cmd === "/cancel" || cmd === "/editpost" || cmd === "/savebtn" || cmd === "/buttons" || cmd === "/delbtn") {
               const handled = await handleBroadcastCommand({
                 cmd,
