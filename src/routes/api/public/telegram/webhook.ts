@@ -75,7 +75,7 @@ const HELP_COMPACT =
   "💬 <b>Engagement</b>\n" +
   "/react on|off • /comment &lt;channel_id&gt; &lt;message_id&gt; &lt;text&gt;\n\n" +
   "🔁 <b>Recurring</b>\n" +
-  "/recur &lt;broadcast_id&gt; &lt;spec&gt; • /recurring • /delrecur &lt;id&gt;\n\n" +
+  "/recur &lt;n|id&gt; &lt;spec&gt; [in&lt;time&gt;] • /listrecur • /dltrecur &lt;n|id&gt;\n\n" +
   "🔐 <b>Permissions</b>\n" +
   "/permissions [chat_id] • /checkperms\n\n" +
   "☢️ <b>Nuke</b>\n" +
@@ -135,9 +135,10 @@ const HELP_DETAILED =
   "/nuke — delete your latest broadcast from every channel it went to.\n" +
   "/nuke &lt;broadcast_id&gt; — target a specific broadcast.\n\n" +
   "🔁 <b>Recurring</b> (bot admins, DM)\n" +
-  "/recur &lt;broadcast_id&gt; &lt;spec&gt; — turn any existing broadcast into a repeating schedule. Specs: <code>daily HH:MM</code>, <code>weekly &lt;day&gt; HH:MM</code>, <code>monthly &lt;day&gt; HH:MM</code> (all IST), or <code>cron &lt;expr&gt;</code> (UTC).\n" +
-  "/recurring — list your recurring posts.\n" +
-  "/delrecur &lt;id&gt; — remove a recurring schedule.\n\n" +
+  "/recur &lt;number|broadcast_id&gt; &lt;spec&gt; [in&lt;time&gt;] — turn any existing broadcast into a repeating schedule. The number comes from /listpost. Specs: <code>daily HH:MM</code>, <code>weekly &lt;day&gt; HH:MM</code>, <code>monthly &lt;day&gt; HH:MM</code> (all IST), or <code>cron &lt;expr&gt;</code> (UTC). Optional trailing <code>in5m</code> / <code>in2h</code> / <code>in1d</code> sets auto-delete (max 48h), overriding the template.\n" +
+  "Example: <code>/recur 1 daily 09:00 in5m</code>\n" +
+  "/listrecur — numbered list of your recurring posts.\n" +
+  "/dltrecur &lt;number|id&gt; — remove a recurring schedule.\n\n" +
   "🔐 <b>Permissions monitor</b> (bot admins, DM)\n" +
   "/permissions — overview of the bot's admin rights across every tracked chat.\n" +
   "/permissions &lt;chat_id&gt; — detailed permissions for one chat.\n" +
@@ -1102,7 +1103,13 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 telegramCall,
                 supabaseAdmin,
               });
-            } else if (cmd === "/recur" || cmd === "/recurring" || cmd === "/delrecur") {
+            } else if (
+              cmd === "/recur" ||
+              cmd === "/recurring" ||
+              cmd === "/listrecur" ||
+              cmd === "/delrecur" ||
+              cmd === "/dltrecur"
+            ) {
               const { handleRecurringCommand } = await import("@/lib/recurring-commands.server");
               await handleRecurringCommand({
                 cmd,
