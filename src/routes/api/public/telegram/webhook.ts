@@ -579,10 +579,7 @@ async function handleListPost(args: {
     await telegramCall("sendMessage", { chat_id: replyChatId, text: "❌ Only bot admins can use /listpost." });
     return;
   }
-  if (chatType !== "private") {
-    await telegramCall("sendMessage", { chat_id: replyChatId, text: "🔒 Use /listpost in a private chat with me." });
-    return;
-  }
+  void chatType;
   const rows = await fetchListPost(supabaseAdmin, fromId);
   if (!rows.length) {
     await telegramCall("sendMessage", { chat_id: replyChatId, text: "You haven't created any broadcasts yet. Use /post to make one." });
@@ -614,10 +611,7 @@ async function handleDltPost(args: {
     await telegramCall("sendMessage", { chat_id: replyChatId, text: "❌ Only bot admins can use /dltpost." });
     return;
   }
-  if (chatType !== "private") {
-    await telegramCall("sendMessage", { chat_id: replyChatId, text: "🔒 Use /dltpost in a private chat with me." });
-    return;
-  }
+  void chatType;
   const raw = (argText.trim().split(/\s+/)[1] ?? "").trim();
   const n = Number(raw);
   if (!raw || !Number.isInteger(n) || n < 1) {
