@@ -77,7 +77,7 @@ export async function handleRecurringCommand(args: {
   chatType: string;
 }): Promise<boolean> {
   const { cmd, fromId, fromName, argText, chatId, chatType } = args;
-  const RECUR_CMDS = ["/recur", "/recurring", "/listrecur", "/delrecur", "/dltrecur"];
+  const RECUR_CMDS = ["/recur", "/recurring", "/listrecur", "/delrecur", "/dltrecur", "/pauserecur", "/resumerecur"];
   if (!RECUR_CMDS.includes(cmd)) return false;
 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -97,6 +97,11 @@ export async function handleRecurringCommand(args: {
   if (cmd === "/dltrecur" || cmd === "/delrecur") {
     const rest = argText.replace(/^\/(dltrecur|delrecur)(@\S+)?\s*/i, "").trim();
     await deleteRecurrence(fromId, chatId, rest);
+    return true;
+  }
+  if (cmd === "/pauserecur" || cmd === "/resumerecur") {
+    const rest = argText.replace(/^\/(pauserecur|resumerecur)(@\S+)?\s*/i, "").trim();
+    await setRecurrenceActive(fromId, chatId, rest, cmd === "/resumerecur");
     return true;
   }
   if (cmd === "/recur") {
