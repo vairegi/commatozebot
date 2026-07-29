@@ -7,24 +7,46 @@ export async function telegramCall(method: string, body: Record<string, unknown>
   if (!lovableKey || !telegramKey) {
     throw new Error("Telegram connector env vars are missing");
   }
-  const res = await fetch(`${GATEWAY_URL}/${method}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${lovableKey}`,
-      "X-Connection-Api-Key": telegramKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`Telegram ${method} failed [${res.status}]: ${text}`);
+  // Retry transient upstream errors (502/503/504) and rate limits (429).
+  const maxAttempts = 4;
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch(`${GATEWAY_URL}/${method}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${lovableKey}`,
+        "X-Connection-Api-Key": telegramKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    if (res.ok) {
+      const json = JSON.parse(text);
+      if (json.ok === false) {
+        throw new Error(`Telegram ${method} error: ${json.description ?? text}`);
+      }
+      return json.result;
+    }
+    const retriable = res.status === 429 || (res.status >= 500 && res.status <= 599);
+    lastErr = new Error(`Telegram ${method} failed [${res.status}]: ${text}`);
+    if (!retriable || attempt === maxAttempts) throw lastErr;
+    // Honor Retry-After when present; otherwise exponential backoff (0.5s, 1s, 2s).
+    let delayMs = 500 * Math.pow(2, attempt - 1);
+    const retryAfter = res.headers.get("retry-after");
+    if (retryAfter) {
+      const secs = Number(retryAfter);
+      if (Number.isFinite(secs) && secs > 0) delayMs = Math.min(secs * 1000, 10_000);
+    } else {
+      try {
+        const j = JSON.parse(text);
+        const p = j?.parameters?.retry_after;
+        if (typeof p === "number" && p > 0) delayMs = Math.min(p * 1000, 10_000);
+      } catch {}
+    }
+    await new Promise((r) => setTimeout(r, delayMs));
   }
-  const json = JSON.parse(text);
-  if (json.ok === false) {
-    throw new Error(`Telegram ${method} error: ${json.description ?? text}`);
-  }
-  return json.result;
+  throw lastErr ?? new Error(`Telegram ${method} failed`);
 }
 
 export function deriveWebhookSecret(): string {
