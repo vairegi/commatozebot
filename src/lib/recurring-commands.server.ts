@@ -280,3 +280,64 @@ async function deleteRecurrence(fromId: number, chatId: number, token: string) {
     text: count ? "✅ Recurring post removed." : "❌ Not found (or not yours).",
   });
 }
+
+async function setRecurrenceActive(fromId: number, chatId: number, token: string, active: boolean) {
+  const verb = active ? "resume" : "pause";
+  if (!token) {
+    await telegramCall("sendMessage", {
+      chat_id: chatId,
+      parse_mode: "HTML",
+      text: `Usage: <code>/${verb}recur &lt;number|id&gt;</code> (number from /listrecur)`,
+    });
+    return;
+  }
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  let id = token;
+  if (/^\d+$/.test(token)) {
+    const rows = await fetchUserRecurrences(supabaseAdmin, fromId);
+    const rec = rows[Number(token) - 1];
+    if (!rec) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ No recurring #${token} in your list. Run /listrecur.` });
+      return;
+    }
+    id = rec.id;
+  }
+
+  const update: Record<string, unknown> = { active };
+  // On resume, recompute next_run_at so it doesn't fire immediately for every missed slot.
+  if (active) {
+    const { data: cur } = await supabaseAdmin
+      .from("broadcast_recurrences")
+      .select("cron_expr")
+      .eq("id", id)
+      .eq("created_by", fromId)
+      .maybeSingle();
+    if ((cur as any)?.cron_expr) {
+      try { update.next_run_at = nextRunAfter((cur as any).cron_expr).toISOString(); } catch { /* keep existing */ }
+    }
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("broadcast_recurrences")
+    .update(update)
+    .eq("id", id)
+    .eq("created_by", fromId)
+    .select("id, spec_text, next_run_at")
+    .maybeSingle();
+  if (error) {
+    await telegramCall("sendMessage", { chat_id: chatId, text: `❌ ${error.message}` });
+    return;
+  }
+  if (!data) {
+    await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Not found (or not yours)." });
+    return;
+  }
+  const r = data as any;
+  await telegramCall("sendMessage", {
+    chat_id: chatId,
+    parse_mode: "HTML",
+    text: active
+      ? `▶️ <b>Resumed</b> — ${escapeHtml(r.spec_text)}\nNext run: ${fmtIST(r.next_run_at)}`
+      : `⏸ <b>Paused</b> — ${escapeHtml(r.spec_text)}\nUse <code>/resumerecur ${token}</code> to re-enable.`,
+  });
+}
