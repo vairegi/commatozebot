@@ -532,19 +532,22 @@ async function handleNukeCommand(args: {
   await telegramCall("sendMessage", {
     chat_id: replyChatId,
     text:
-      `☢️ <b>Nuke broadcast?</b>\n\n` +
+      `☢️ <b>Nuking broadcast…</b>\n\n` +
       `Preview: <i>${escapeHtml((bc.preview_text ?? "").slice(0, 200))}</i>\n` +
-      `Status: <b>${bc.status}</b>\n` +
-      `Will delete from <b>${count ?? 0}</b> channel(s).\n\n` +
-      `This cannot be undone.`,
+      `Deleting from <b>${count ?? 0}</b> channel(s)…`,
     parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: [[
-        { text: "☢️ Confirm nuke", callback_data: `bc:nuke:${bcId}` },
-        { text: "❌ Cancel", callback_data: "bc:nukex" },
-      ]],
-    },
   });
+  try {
+    const { runNuke } = await import("@/lib/broadcast.server");
+    const res = await runNuke({ broadcastId: bcId!, fromId });
+    await telegramCall("sendMessage", {
+      chat_id: replyChatId,
+      text: `☢️ <b>Nuke complete</b>\n✅ Deleted: <b>${res.deleted}</b>\n❌ Failed: <b>${res.failed}</b>`,
+      parse_mode: "HTML",
+    });
+  } catch (e: any) {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: `❌ Nuke failed: ${e?.message ?? e}` });
+  }
 }
 
 function formatName(u: { first_name?: string; last_name?: string; username?: string } | null | undefined): string {
@@ -576,10 +579,7 @@ async function handleListPost(args: {
     await telegramCall("sendMessage", { chat_id: replyChatId, text: "❌ Only bot admins can use /listpost." });
     return;
   }
-  if (chatType !== "private") {
-    await telegramCall("sendMessage", { chat_id: replyChatId, text: "🔒 Use /listpost in a private chat with me." });
-    return;
-  }
+  void chatType;
   const rows = await fetchListPost(supabaseAdmin, fromId);
   if (!rows.length) {
     await telegramCall("sendMessage", { chat_id: replyChatId, text: "You haven't created any broadcasts yet. Use /post to make one." });
@@ -611,10 +611,7 @@ async function handleDltPost(args: {
     await telegramCall("sendMessage", { chat_id: replyChatId, text: "❌ Only bot admins can use /dltpost." });
     return;
   }
-  if (chatType !== "private") {
-    await telegramCall("sendMessage", { chat_id: replyChatId, text: "🔒 Use /dltpost in a private chat with me." });
-    return;
-  }
+  void chatType;
   const raw = (argText.trim().split(/\s+/)[1] ?? "").trim();
   const n = Number(raw);
   if (!raw || !Number.isInteger(n) || n < 1) {
