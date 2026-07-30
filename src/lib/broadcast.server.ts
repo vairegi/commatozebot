@@ -254,7 +254,7 @@ export async function runNuke(args: { broadcastId: string; fromId: number }): Pr
 
   const { data: targets } = await supabaseAdmin
     .from("broadcast_targets")
-    .select("id, chat_id, sent_message_id, status")
+    .select("id, chat_id, sent_message_id, sent_message_ids, status")
     .eq("broadcast_id", args.broadcastId)
     .not("sent_message_id", "is", null)
     .neq("status", "deleted");
@@ -263,7 +263,8 @@ export async function runNuke(args: { broadcastId: string; fromId: number }): Pr
   let failed = 0;
   for (const t of (targets as any[]) ?? []) {
     try {
-      await telegramCall("deleteMessage", { chat_id: t.chat_id, message_id: t.sent_message_id });
+      const ids = (t.sent_message_ids?.length ? t.sent_message_ids : [t.sent_message_id]).map(Number);
+      await deleteTargetMessages(t.chat_id, ids);
       await supabaseAdmin
         .from("broadcast_targets")
         .update({ status: "deleted", deleted_at: new Date().toISOString(), delete_at: null })
