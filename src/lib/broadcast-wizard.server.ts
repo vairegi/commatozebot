@@ -76,6 +76,7 @@ export async function handleBroadcastCommand(args: {
   if (
     cmd !== "/post" &&
     cmd !== "/crosspost" &&
+    cmd !== "/splitpost" &&
     cmd !== "/broadcasts" &&
     cmd !== "/cancel" &&
     cmd !== "/editpost" &&
@@ -128,6 +129,12 @@ export async function handleBroadcastCommand(args: {
       mode,
       source_message_ids: null,
       media_group_id: null,
+      split_enabled: false,
+      split_source_chat_id: null,
+      split_source_message_id: null,
+      split_source_message_ids: null,
+      split_preview_text: null,
+      split_media_group_id: null,
     });
     // If /post was sent as a reply to a message, use that message as the content immediately.
     if (replyTo && replyTo.message_id && replyTo.chat?.id) {
@@ -151,6 +158,11 @@ export async function handleBroadcastCommand(args: {
         `${label}\n\nSend or forward the message you want to broadcast (text, photo, video, document, etc.).\n\nUse /cancel to abort.`,
       parse_mode: "HTML",
     });
+    return true;
+  }
+
+  if (cmd === "/splitpost") {
+    await startSplitPost(fromId, chatId, argText ?? "", replyTo);
     return true;
   }
 
