@@ -380,14 +380,51 @@ export async function handleBroadcastMessage(args: {
   if (draft.step === "awaiting_content") {
     // Any message with an id is fine
     if (!message.message_id || !message.chat?.id) return true;
+    // Album (media group): Telegram delivers each item as its own update.
+    if (message.media_group_id) {
+      await saveDraft(fromId, {
+        source_chat_id: message.chat.id,
+        source_message_id: message.message_id,
+        source_message_ids: [message.message_id],
+        media_group_id: String(message.media_group_id),
+        preview_text: previewOf(message),
+        step: "collecting_album",
+        selected_chat_ids: [],
+      });
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: "🖼 Album detected — collecting items…",
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "✅ Done, pick channels", callback_data: "bc:album_done" },
+            { text: "❌ Cancel", callback_data: "bc:x" },
+          ]],
+        },
+      });
+      return true;
+    }
     await saveDraft(fromId, {
       source_chat_id: message.chat.id,
       source_message_id: message.message_id,
+      source_message_ids: null,
+      media_group_id: null,
       preview_text: previewOf(message),
       step: "awaiting_channels",
       selected_chat_ids: [],
     });
     await promptChannels(fromId, chatId);
+    return true;
+  }
+
+  // Collecting remaining items of an album
+  if (draft.step === "collecting_album") {
+    if (!message.message_id || !message.chat?.id) return true;
+    if (message.media_group_id && String(message.media_group_id) === String((draft as any).media_group_id)) {
+      const ids: number[] = ((draft as any).source_message_ids ?? []).map(Number);
+      if (!ids.includes(message.message_id)) ids.push(message.message_id);
+      ids.sort((a, b) => a - b);
+      await saveDraft(fromId, { source_message_ids: ids, source_message_id: ids[0] });
+    }
     return true;
   }
 
