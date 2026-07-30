@@ -538,7 +538,61 @@ export async function handleBroadcastMessage(args: {
       step: "awaiting_channels",
       selected_chat_ids: [],
     });
+    if (draft.split_enabled) {
+      await saveDraft(fromId, { step: "awaiting_split_content", source_message_json: message });
+      await promptSplitContent(chatId, "B");
+      return true;
+    }
     await promptChannels(fromId, chatId);
+    return true;
+  }
+
+  // Awaiting the second (B) post of a split broadcast
+  if (draft.step === "awaiting_split_content") {
+    if (!message.message_id || !message.chat?.id) return true;
+    if (message.media_group_id) {
+      await saveDraft(fromId, {
+        split_source_chat_id: message.chat.id,
+        split_source_message_id: message.message_id,
+        split_source_message_ids: [message.message_id],
+        split_media_group_id: String(message.media_group_id),
+        split_preview_text: previewOf(message),
+        step: "collecting_split_album",
+      });
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: "🖼 Album detected for post B — collecting items…",
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "✅ Done, pick channels", callback_data: "bc:album_done" },
+            { text: "❌ Cancel", callback_data: "bc:x" },
+          ]],
+        },
+      });
+      return true;
+    }
+    await saveDraft(fromId, {
+      split_source_chat_id: message.chat.id,
+      split_source_message_id: message.message_id,
+      split_source_message_ids: null,
+      split_media_group_id: null,
+      split_preview_text: previewOf(message),
+      step: "awaiting_channels",
+      selected_chat_ids: [],
+    });
+    await promptChannels(fromId, chatId);
+    return true;
+  }
+
+  // Collecting remaining items of post B's album
+  if (draft.step === "collecting_split_album") {
+    if (!message.message_id || !message.chat?.id) return true;
+    if (message.media_group_id && String(message.media_group_id) === String((draft as any).split_media_group_id)) {
+      const ids: number[] = ((draft as any).split_source_message_ids ?? []).map(Number);
+      if (!ids.includes(message.message_id)) ids.push(message.message_id);
+      ids.sort((a, b) => a - b);
+      await saveDraft(fromId, { split_source_message_ids: ids, split_source_message_id: ids[0] });
+    }
     return true;
   }
 
