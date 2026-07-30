@@ -79,7 +79,7 @@ const HELP_COMPACT =
   "🔐 <b>Permissions</b>\n" +
   "/permissions [chat_id] • /checkperms\n\n" +
   "☢️ <b>Nuke</b>\n" +
-  "/nuke • /nuke &lt;id&gt;\n\n" +
+  "/nuke • /nuke &lt;id&gt; • /dltmsg &lt;link&gt;\n\n" +
   "🗄 <b>Backup</b>\n" +
   "/backup • /restore\n\n" +
   "📊 <b>Stats</b>\n" +
@@ -134,6 +134,7 @@ const HELP_DETAILED =
   "☢️ <b>Nuke</b> (super admins, DM)\n" +
   "/nuke — delete your latest broadcast from every channel it went to.\n" +
   "/nuke &lt;broadcast_id&gt; — target a specific broadcast.\n\n" +
+  "/dltmsg &lt;t.me link&gt; — delete a single message from a channel, e.g. /dltmsg https://t.me/c/2797430230/63 (also accepts &lt;chat_id&gt; &lt;message_id&gt;).\n\n" +
   "🔁 <b>Recurring</b> (bot admins, DM)\n" +
   "/recur &lt;number|broadcast_id&gt; &lt;spec&gt; [in&lt;time&gt;] — turn any existing broadcast into a repeating schedule. The number comes from /listpost. Specs: <code>daily HH:MM</code>, <code>weekly &lt;day&gt; HH:MM</code>, <code>monthly &lt;day&gt; HH:MM</code> (all IST), or <code>cron &lt;expr&gt;</code> (UTC). Optional trailing <code>in5m</code> / <code>in2h</code> / <code>in1d</code> sets auto-delete (max 48h), overriding the template.\n" +
   "Example: <code>/recur 1 daily 09:00 in5m</code>\n" +
