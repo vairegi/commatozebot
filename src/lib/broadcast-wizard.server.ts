@@ -1429,6 +1429,108 @@ async function commitDraft(fromId: number, fromName: string, chatId: number) {
 }
 
 async function showBroadcastDetail(fromId: number, chatId: number, id: string, cqId: string) {
+  return _showBroadcastDetail(fromId, chatId, id, cqId);
+}
+
+/** Create two broadcasts (A and B) and alternate the selected channels between them. */
+async function commitSplitDraft(fromId: number, fromName: string, chatId: number, d: any) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const selected: number[] = ((d.selected_chat_ids ?? []) as any[]).map(Number);
+  const groupId = crypto.randomUUID();
+
+  const { data: chats } = await supabaseAdmin
+    .from("telegram_chats")
+    .select("chat_id, title, username")
+    .in("chat_id", selected);
+  const titleOf = (cid: number) => {
+    const c = (chats as any[] | null | undefined)?.find((x) => Number(x.chat_id) === Number(cid));
+    return String(c?.title ?? c?.username ?? cid);
+  };
+
+  const variants = [
+    {
+      label: "A" as const,
+      source_chat_id: Number(d.source_chat_id),
+      source_message_id: Number(d.source_message_id),
+      source_message_ids: d.source_message_ids?.length ? d.source_message_ids : null,
+      preview_text: d.preview_text ?? null,
+      chatIds: selected.filter((_, i) => i % 2 === 0),
+    },
+    {
+      label: "B" as const,
+      source_chat_id: Number(d.split_source_chat_id),
+      source_message_id: Number(d.split_source_message_id),
+      source_message_ids: d.split_source_message_ids?.length ? d.split_source_message_ids : null,
+      preview_text: d.split_preview_text ?? null,
+      chatIds: selected.filter((_, i) => i % 2 === 1),
+    },
+  ];
+
+  const created: Array<{ label: "A" | "B"; id: string; count: number }> = [];
+  for (const v of variants) {
+    if (!v.chatIds.length) continue;
+    const { data: bc, error } = await supabaseAdmin
+      .from("broadcasts")
+      .insert({
+        created_by: fromId,
+        created_by_name: fromName,
+        source_chat_id: v.source_chat_id,
+        source_message_id: v.source_message_id,
+        source_message_ids: v.source_message_ids,
+        preview_text: v.preview_text,
+        scheduled_at: d.scheduled_at,
+        auto_delete_seconds: d.auto_delete_seconds,
+        mode: d.mode ?? "copy",
+        reply_markup: d.reply_markup ?? null,
+        status: "pending",
+        split_group_id: groupId,
+        split_variant: v.label,
+      })
+      .select("id")
+      .single();
+    if (error || !bc) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ Failed to create post ${v.label}: ${error?.message ?? "unknown"}` });
+      continue;
+    }
+    await supabaseAdmin.from("broadcast_targets").insert(
+      v.chatIds.map((cid) => ({ broadcast_id: (bc as any).id, chat_id: cid, chat_title: titleOf(cid) })),
+    );
+    created.push({ label: v.label, id: (bc as any).id, count: v.chatIds.length });
+  }
+  await clearDraft(fromId);
+
+  if (!created.length) return;
+
+  if (d.scheduled_at) {
+    await telegramCall("sendMessage", {
+      chat_id: chatId,
+      text:
+        `⏰ Split broadcast scheduled for ${fmtIST(d.scheduled_at)}.\n` +
+        created.map((c) => `${c.label === "A" ? "🅰️" : "🅱️"} ${c.count} channel${c.count === 1 ? "" : "s"}`).join("\n"),
+    });
+    return;
+  }
+
+  await telegramCall("sendMessage", {
+    chat_id: chatId,
+    text: `🚀 Sending split broadcast…\n${created.map((c) => `${c.label === "A" ? "🅰️" : "🅱️"} ${c.count} channel${c.count === 1 ? "" : "s"}`).join("\n")}`,
+  });
+  for (const c of created) {
+    try {
+      const res = await executeBroadcast(c.id);
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: `${c.label === "A" ? "🅰️" : "🅱️"} <b>Post ${c.label}</b>\n` + formatDeliveryReport(res.targets, res.status),
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      });
+    } catch (e: any) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ Post ${c.label} failed: ${e?.message ?? e}` });
+    }
+  }
+}
+
+async function _showBroadcastDetail(fromId: number, chatId: number, id: string, cqId: string) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: bc } = await supabaseAdmin.from("broadcasts").select("*").eq("id", id).eq("created_by", fromId).maybeSingle();
   if (!bc) {
