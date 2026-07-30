@@ -127,6 +127,7 @@ export async function handleBroadcastCommand(args: {
       reply_markup: null,
       mode,
     });
+    await saveDraft(fromId, { source_message_ids: null, media_group_id: null } as any);
     // If /post was sent as a reply to a message, use that message as the content immediately.
     if (replyTo && replyTo.message_id && replyTo.chat?.id) {
       await saveDraft(fromId, {
