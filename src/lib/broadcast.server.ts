@@ -305,16 +305,6 @@ export async function deleteTargetMessages(chatId: number, ids: number[]): Promi
   await telegramCall("deleteMessages", { chat_id: chatId, message_ids: clean });
 }
 
-interface _UnusedSendResultTarget {
-  chat_id: number;
-  chat_title?: string | null;
-  username?: string | null;
-  ok: boolean;
-  error?: string;
-  message_id?: number;
-  link?: string | null;
-}
-
 /** Copy the source message to every target chat. */
 export async function executeBroadcast(broadcastId: string): Promise<{
   targets: SendResultTarget[];
