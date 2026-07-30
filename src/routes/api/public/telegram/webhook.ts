@@ -1122,7 +1122,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               await handleDltPost({ fromId: from.id, argText: text ?? "", replyChatId: chat.id, chatType: chat.type, telegramCall, supabaseAdmin });
               return Response.json({ ok: true });
             }
-            if (cmd === "/post" || cmd === "/crosspost" || cmd === "/broadcasts" || cmd === "/cancel" || cmd === "/editpost" || cmd === "/savebtn" || cmd === "/buttons" || cmd === "/delbtn") {
+            if (cmd === "/post" || cmd === "/crosspost" || cmd === "/splitpost" || cmd === "/broadcasts" || cmd === "/cancel" || cmd === "/editpost" || cmd === "/savebtn" || cmd === "/buttons" || cmd === "/delbtn") {
               const handled = await handleBroadcastCommand({
                 cmd,
                 fromId: from.id,
