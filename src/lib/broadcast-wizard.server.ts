@@ -1364,6 +1364,12 @@ async function commitDraft(fromId: number, fromName: string, chatId: number) {
     return;
   }
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  // Split mode: two posts alternating A/B/A/B across the selected channels.
+  if (d.split_enabled && d.split_source_chat_id && d.split_source_message_id) {
+    await commitSplitDraft(fromId, fromName, chatId, d);
+    return;
+  }
   const { data: bc, error } = await supabaseAdmin
     .from("broadcasts")
     .insert({
