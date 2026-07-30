@@ -290,6 +290,31 @@ export interface SendResultTarget {
   link?: string | null;
 }
 
+/** Gap between per-channel sends, keeping us well under Telegram's ~30 msg/s ceiling. */
+const PACE_MS = 1200;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Delete one target's message(s), handling albums (multiple message ids). */
+export async function deleteTargetMessages(chatId: number, ids: number[]): Promise<void> {
+  const clean = ids.map(Number).filter(Boolean);
+  if (!clean.length) throw new Error("no message_id");
+  if (clean.length === 1) {
+    await telegramCall("deleteMessage", { chat_id: chatId, message_id: clean[0] });
+    return;
+  }
+  await telegramCall("deleteMessages", { chat_id: chatId, message_ids: clean });
+}
+
+interface _UnusedSendResultTarget {
+  chat_id: number;
+  chat_title?: string | null;
+  username?: string | null;
+  ok: boolean;
+  error?: string;
+  message_id?: number;
+  link?: string | null;
+}
+
 /** Copy the source message to every target chat. */
 export async function executeBroadcast(broadcastId: string): Promise<{
   targets: SendResultTarget[];
