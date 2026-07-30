@@ -769,6 +769,28 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     return true;
   }
 
+  // Album collected — move on to channel picking.
+  if (op === "album_done") {
+    if (!draft || draft.step !== "collecting_album") {
+      await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
+      return true;
+    }
+    const ids: number[] = ((draft as any).source_message_ids ?? []).map(Number);
+    await saveDraft(fromId, { step: "awaiting_channels", selected_chat_ids: [] });
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: `${ids.length} item(s) captured` });
+    if (cq.message?.message_id) {
+      try {
+        await telegramCall("editMessageText", {
+          chat_id: chatId,
+          message_id: cq.message.message_id,
+          text: `🖼 Album captured — ${ids.length} item(s).`,
+        });
+      } catch { /* ignore */ }
+    }
+    await promptChannels(fromId, chatId);
+    return true;
+  }
+
   if (op === "pre" && draft) {
     const categories: Array<"adult" | "manga"> =
       arg === "adult" ? ["adult"] : arg === "manga" ? ["manga"] : arg === "both" ? ["adult", "manga"] : [];
