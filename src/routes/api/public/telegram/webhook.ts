@@ -844,6 +844,24 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
             console.warn("bot_status columns not yet migrated", e);
           }
 
+          // While we still have admin rights, capture an invite link so we can
+          // point admins back to the chat even after the bot is kicked.
+          if (isAdmin && !c.username) {
+            try {
+              const info = await telegramCall("getChat", { chat_id: c.id });
+              let link: string | undefined = info?.invite_link;
+              if (!link) {
+                const created = await telegramCall("exportChatInviteLink", { chat_id: c.id });
+                if (typeof created === "string") link = created;
+              }
+              if (link) {
+                await supabaseAdmin.from("telegram_chats").update({ invite_link: link }).eq("chat_id", c.id);
+              }
+            } catch (e) {
+              console.warn("invite link capture failed", c.id, e);
+            }
+          }
+
           // Alert bot admins when bot loses admin rights or is removed/kicked from a chat
           if (wasAdmin && !isAdmin) {
             try {
@@ -859,9 +877,15 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               if (c.username) {
                 deepLink = `https://t.me/${c.username}`;
               } else {
-                const idStr = String(c.id);
-                if (idStr.startsWith("-100")) {
-                  deepLink = `https://t.me/c/${idStr.slice(4)}`;
+                const { data: stored } = await supabaseAdmin
+                  .from("telegram_chats")
+                  .select("invite_link")
+                  .eq("chat_id", c.id)
+                  .maybeSingle();
+                deepLink = (stored as any)?.invite_link ?? null;
+                if (!deepLink) {
+                  const idStr = String(c.id);
+                  if (idStr.startsWith("-100")) deepLink = `https://t.me/c/${idStr.slice(4)}`;
                 }
               }
               let reason = "demoted from admin";
