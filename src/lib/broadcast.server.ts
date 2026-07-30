@@ -690,7 +690,7 @@ export async function tickBroadcasts(): Promise<{
   // 2) auto-delete
   const { data: toDelete } = await supabaseAdmin
     .from("broadcast_targets")
-    .select("id, broadcast_id, chat_id, chat_title, sent_message_id")
+    .select("id, broadcast_id, chat_id, chat_title, sent_message_id, sent_message_ids")
     .eq("status", "sent")
     .not("delete_at", "is", null)
     .lte("delete_at", nowIso)
@@ -715,7 +715,8 @@ export async function tickBroadcasts(): Promise<{
       continue;
     }
     try {
-      await telegramCall("deleteMessage", { chat_id: t.chat_id, message_id: t.sent_message_id });
+      const ids = ((t as any).sent_message_ids?.length ? (t as any).sent_message_ids : [t.sent_message_id]).map(Number);
+      await deleteTargetMessages(t.chat_id, ids);
       await supabaseAdmin
         .from("broadcast_targets")
         .update({ status: "deleted", deleted_at: new Date().toISOString() })
