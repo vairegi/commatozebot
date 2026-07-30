@@ -951,12 +951,17 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
 
   // Album collected — move on to channel picking.
   if (op === "album_done") {
-    if (!draft || draft.step !== "collecting_album") {
+    if (!draft || (draft.step !== "collecting_album" && draft.step !== "collecting_split_album")) {
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
       return true;
     }
-    const ids: number[] = ((draft as any).source_message_ids ?? []).map(Number);
-    await saveDraft(fromId, { step: "awaiting_channels", selected_chat_ids: [] });
+    const isSplitSlot = draft.step === "collecting_split_album";
+    const ids: number[] = ((isSplitSlot ? (draft as any).split_source_message_ids : (draft as any).source_message_ids) ?? []).map(Number);
+    const needsB = !isSplitSlot && draft.split_enabled;
+    await saveDraft(fromId, {
+      step: needsB ? "awaiting_split_content" : "awaiting_channels",
+      ...(needsB ? {} : { selected_chat_ids: [] }),
+    });
     await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: `${ids.length} item(s) captured` });
     if (cq.message?.message_id) {
       try {
@@ -966,6 +971,10 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
           text: `🖼 Album captured — ${ids.length} item(s).`,
         });
       } catch { /* ignore */ }
+    }
+    if (needsB) {
+      await promptSplitContent(chatId, "B");
+      return true;
     }
     await promptChannels(fromId, chatId);
     return true;
