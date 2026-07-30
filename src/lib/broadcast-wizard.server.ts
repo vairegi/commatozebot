@@ -203,6 +203,120 @@ export async function handleBroadcastCommand(args: {
 }
 
 async function listBroadcasts(fromId: number, chatId: number, _fromName: string) {
+  return _listBroadcasts(fromId, chatId, _fromName);
+}
+
+// ================== Split post (two variants, alternating A/B/A/B) ==================
+
+async function fetchRecentPosts(fromId: number) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data } = await supabaseAdmin
+    .from("broadcasts")
+    .select("id, preview_text, mode, source_chat_id, source_message_id, source_message_ids, reply_markup, created_at")
+    .eq("created_by", fromId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  return ((data ?? []) as any[]);
+}
+
+async function promptSplitContent(chatId: number, slot: "A" | "B") {
+  await telegramCall("sendMessage", {
+    chat_id: chatId,
+    parse_mode: "HTML",
+    text:
+      slot === "A"
+        ? "🅰️ <b>Split post — send post A</b>\n\nSend or forward the first message (text, media, or album).\n\nUse /cancel to abort."
+        : "🅱️ <b>Now send post B</b>\n\nSend or forward the second message. Channels will alternate: A, B, A, B…\n\nUse /cancel to abort.",
+  });
+}
+
+/** /splitpost [numA] [numB] — set up an A/B alternating broadcast. */
+async function startSplitPost(fromId: number, chatId: number, argText: string, replyTo?: any) {
+  const nums = argText
+    .trim()
+    .split(/\s+/)
+    .slice(1)
+    .map((s) => Number(s))
+    .filter((n) => Number.isInteger(n) && n >= 1)
+    .slice(0, 2);
+
+  await saveDraft(fromId, {
+    step: "awaiting_content",
+    source_chat_id: null,
+    source_message_id: null,
+    source_message_ids: null,
+    media_group_id: null,
+    preview_text: null,
+    source_message_json: null,
+    selected_chat_ids: [],
+    scheduled_at: null,
+    auto_delete_seconds: null,
+    editing_broadcast_id: null,
+    awaiting_custom: null,
+    reply_markup: null,
+    mode: "copy",
+    split_enabled: true,
+    split_source_chat_id: null,
+    split_source_message_id: null,
+    split_source_message_ids: null,
+    split_preview_text: null,
+    split_media_group_id: null,
+  });
+
+  if (nums.length) {
+    const rows = await fetchRecentPosts(fromId);
+    const missing = nums.filter((n) => !rows[n - 1]);
+    if (missing.length) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ No post #${missing.join(", #")} in your list. Run /listpost.` });
+      await clearDraft(fromId);
+      return;
+    }
+    const a = rows[nums[0] - 1];
+    await saveDraft(fromId, {
+      source_chat_id: Number(a.source_chat_id),
+      source_message_id: Number(a.source_message_id),
+      source_message_ids: a.source_message_ids?.length ? a.source_message_ids : null,
+      preview_text: a.preview_text ?? null,
+      mode: a.mode ?? "copy",
+      reply_markup: a.reply_markup ?? null,
+    });
+    if (nums.length === 2) {
+      const b = rows[nums[1] - 1];
+      await saveDraft(fromId, {
+        split_source_chat_id: Number(b.source_chat_id),
+        split_source_message_id: Number(b.source_message_id),
+        split_source_message_ids: b.source_message_ids?.length ? b.source_message_ids : null,
+        split_preview_text: b.preview_text ?? null,
+        step: "awaiting_channels",
+      });
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: `♻️ Split post using #${nums[0]} (A) and #${nums[1]} (B). Channels will alternate A, B, A, B…`,
+      });
+      await promptChannels(fromId, chatId);
+      return;
+    }
+    await saveDraft(fromId, { step: "awaiting_split_content" });
+    await promptSplitContent(chatId, "B");
+    return;
+  }
+
+  if (replyTo?.message_id && replyTo.chat?.id) {
+    await saveDraft(fromId, {
+      source_chat_id: replyTo.chat.id,
+      source_message_id: replyTo.message_id,
+      preview_text: previewOf(replyTo),
+      source_message_json: replyTo,
+      step: "awaiting_split_content",
+    });
+    await promptSplitContent(chatId, "B");
+    return;
+  }
+
+  await promptSplitContent(chatId, "A");
+}
+
+async function _listBroadcasts(fromId: number, chatId: number, _fromName: string) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: rows } = await supabaseAdmin
     .from("broadcasts")
