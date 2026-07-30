@@ -883,7 +883,15 @@ async function promptConfirm(fromId: number, chatId: number) {
     .from("telegram_chats")
     .select("chat_id, title, username")
     .in("chat_id", d.selected_chat_ids ?? []);
-  const chatLines = (chats as any[] | null | undefined)?.map((c) => `  • ${c.title ?? c.username ?? c.chat_id}`).join("\n") ?? "";
+  const selected: number[] = ((d.selected_chat_ids ?? []) as any[]).map(Number);
+  const titleOf = (cid: number) => {
+    const c = (chats as any[] | null | undefined)?.find((x) => Number(x.chat_id) === Number(cid));
+    return escapeHtml(String(c?.title ?? c?.username ?? cid));
+  };
+  const isSplit = !!d.split_enabled && !!d.split_source_message_id;
+  const chatLines = isSplit
+    ? selected.map((cid, i) => `  ${i % 2 === 0 ? "🅰️" : "🅱️"} ${titleOf(cid)}`).join("\n")
+    : selected.map((cid) => `  • ${titleOf(cid)}`).join("\n");
 
   const when = d.scheduled_at ? `⏰ ${fmtIST(d.scheduled_at)}` : "🚀 Now";
   const del = d.auto_delete_seconds ? `🗑 after ${fmtDuration(d.auto_delete_seconds)}` : "🚫 no auto-delete";
@@ -895,9 +903,11 @@ async function promptConfirm(fromId: number, chatId: number) {
   await telegramCall("sendMessage", {
     chat_id: chatId,
     text:
-      `📋 <b>Confirm broadcast</b>\n\n` +
-      `Preview: <i>${escapeHtml((d.preview_text ?? "").slice(0, 200))}</i>\n\n` +
-      `Channels (${(d.selected_chat_ids ?? []).length}):\n${chatLines}\n\n` +
+      (isSplit ? `📋 <b>Confirm split broadcast (A/B alternating)</b>\n\n` : `📋 <b>Confirm broadcast</b>\n\n`) +
+      (isSplit
+        ? `🅰️ <i>${escapeHtml((d.preview_text ?? "").slice(0, 150))}</i>\n🅱️ <i>${escapeHtml((d.split_preview_text ?? "").slice(0, 150))}</i>\n\n`
+        : `Preview: <i>${escapeHtml((d.preview_text ?? "").slice(0, 200))}</i>\n\n`) +
+      `Channels (${selected.length}):\n${chatLines}\n\n` +
       `When: ${when}\n` +
       `Delete: ${del}` + btnLine,
     parse_mode: "HTML",
