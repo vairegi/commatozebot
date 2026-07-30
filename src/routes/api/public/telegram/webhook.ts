@@ -79,7 +79,7 @@ const HELP_COMPACT =
   "🔐 <b>Permissions</b>\n" +
   "/permissions [chat_id] • /checkperms\n\n" +
   "☢️ <b>Nuke</b>\n" +
-  "/nuke • /nuke &lt;id&gt;\n\n" +
+  "/nuke • /nuke &lt;id&gt; • /dltmsg &lt;link&gt;\n\n" +
   "🗄 <b>Backup</b>\n" +
   "/backup • /restore\n\n" +
   "📊 <b>Stats</b>\n" +
@@ -134,6 +134,7 @@ const HELP_DETAILED =
   "☢️ <b>Nuke</b> (super admins, DM)\n" +
   "/nuke — delete your latest broadcast from every channel it went to.\n" +
   "/nuke &lt;broadcast_id&gt; — target a specific broadcast.\n\n" +
+  "/dltmsg &lt;t.me link&gt; — delete a single message from a channel, e.g. /dltmsg https://t.me/c/2797430230/63 (also accepts &lt;chat_id&gt; &lt;message_id&gt;).\n\n" +
   "🔁 <b>Recurring</b> (bot admins, DM)\n" +
   "/recur &lt;number|broadcast_id&gt; &lt;spec&gt; [in&lt;time&gt;] — turn any existing broadcast into a repeating schedule. The number comes from /listpost. Specs: <code>daily HH:MM</code>, <code>weekly &lt;day&gt; HH:MM</code>, <code>monthly &lt;day&gt; HH:MM</code> (all IST), or <code>cron &lt;expr&gt;</code> (UTC). Optional trailing <code>in5m</code> / <code>in2h</code> / <code>in1d</code> sets auto-delete (max 48h), overriding the template.\n" +
   "Example: <code>/recur 1 daily 09:00 in5m</code>\n" +
@@ -469,6 +470,104 @@ async function handleComment(args: {
     });
   } catch (e: any) {
     await telegramCall("sendMessage", { chat_id: replyChatId, text: `❌ Comment failed: ${e?.message ?? "unknown"}` });
+  }
+}
+
+/** Parse "/dltmsg <t.me link>" or "/dltmsg <chat_id> <message_id>". */
+function parseMessageRef(argText: string): { chatRef: string | number; messageId: number } | null {
+  const parts = argText.trim().split(/\s+/).slice(1);
+  if (parts.length === 0) return null;
+  const first = parts[0];
+  const linkMatch = first.match(/^(?:https?:\/\/)?t\.me\/(c\/)?([^/]+)\/(?:\d+\/)?(\d+)/i);
+  if (linkMatch) {
+    const isPrivate = Boolean(linkMatch[1]);
+    const messageId = Number(linkMatch[3]);
+    if (!Number.isFinite(messageId)) return null;
+    return {
+      chatRef: isPrivate ? Number(`-100${linkMatch[2]}`) : `@${linkMatch[2]}`,
+      messageId,
+    };
+  }
+  if (parts.length >= 2) {
+    const cid = Number(parts[0]);
+    const mid = Number(parts[1]);
+    if (Number.isFinite(cid) && Number.isFinite(mid)) return { chatRef: cid, messageId: mid };
+  }
+  return null;
+}
+
+async function handleDeleteMessageCommand(args: {
+  fromId: number;
+  argText: string;
+  replyChatId: number;
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  supabaseAdmin: any;
+}) {
+  const { fromId, argText, replyChatId, telegramCall, supabaseAdmin } = args;
+  const { data: admin } = await supabaseAdmin
+    .from("telegram_bot_admins")
+    .select("role")
+    .eq("user_id", fromId)
+    .maybeSingle();
+  if (!admin) {
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: "❌ Only bot admins can use /dltmsg." });
+    return;
+  }
+
+  const ref = parseMessageRef(argText);
+  if (!ref) {
+    await telegramCall("sendMessage", {
+      chat_id: replyChatId,
+      text: "Usage: <code>/dltmsg https://t.me/c/2797430230/63</code>\nor <code>/dltmsg -1002797430230 63</code>",
+      parse_mode: "HTML",
+    });
+    return;
+  }
+
+  // Resolve a friendly title + link for the reply.
+  let title = String(ref.chatRef);
+  let link: string | null = null;
+  if (typeof ref.chatRef === "number") {
+    const { data: chatRow } = await supabaseAdmin
+      .from("telegram_chats")
+      .select("title, username")
+      .eq("chat_id", ref.chatRef)
+      .maybeSingle();
+    if (chatRow?.title) title = chatRow.title;
+    link = chatRow?.username
+      ? `https://t.me/${chatRow.username}/${ref.messageId}`
+      : `https://t.me/c/${String(ref.chatRef).replace(/^-100/, "")}/${ref.messageId}`;
+  } else {
+    title = ref.chatRef;
+    link = `https://t.me/${String(ref.chatRef).slice(1)}/${ref.messageId}`;
+  }
+  const titleHtml = link
+    ? `<a href="${link}">${escapeHtml(title)}</a>`
+    : `<b>${escapeHtml(title)}</b>`;
+
+  try {
+    await telegramCall("deleteMessage", { chat_id: ref.chatRef, message_id: ref.messageId });
+    // Keep tracking rows in sync when this message was part of a broadcast.
+    if (typeof ref.chatRef === "number") {
+      await supabaseAdmin
+        .from("broadcast_targets")
+        .update({ status: "deleted", deleted_at: new Date().toISOString() })
+        .eq("chat_id", ref.chatRef)
+        .eq("sent_message_id", ref.messageId);
+    }
+    await telegramCall("sendMessage", {
+      chat_id: replyChatId,
+      text: `🗑 Deleted message <b>${ref.messageId}</b> from ${titleHtml}.`,
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+  } catch (e: any) {
+    await telegramCall("sendMessage", {
+      chat_id: replyChatId,
+      text: `❌ Could not delete message <b>${ref.messageId}</b> from ${titleHtml}.\n<i>${escapeHtml(e?.message ?? "unknown error")}</i>`,
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
   }
 }
 
@@ -1049,6 +1148,8 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               await handleComment({ fromId: from.id, argText: text, replyChatId: chat.id, telegramCall, supabaseAdmin });
             } else if (cmd === "/nuke") {
               await handleNukeCommand({ fromId: from.id, argText: text, replyChatId: chat.id, telegramCall, supabaseAdmin });
+            } else if (cmd === "/dltmsg" || cmd === "/delmsg") {
+              await handleDeleteMessageCommand({ fromId: from.id, argText: text, replyChatId: chat.id, telegramCall, supabaseAdmin });
             } else if (cmd === "/backup") {
               await handleBackupCommand({ fromId: from.id, chatId: chat.id, chatType: chat.type, telegramCall, supabaseAdmin });
             } else if (cmd === "/restore") {
