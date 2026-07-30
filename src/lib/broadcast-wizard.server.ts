@@ -1184,6 +1184,24 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
           ...(draft.reply_markup ? { reply_markup: draft.reply_markup } : {}),
         });
       }
+      if (draft.split_enabled && draft.split_source_message_id && draft.split_source_chat_id) {
+        await telegramCall("sendMessage", { chat_id: fromId, text: "🅱️ <b>Post B</b> (every second channel):", parse_mode: "HTML" });
+        const bIds: number[] = ((draft as any).split_source_message_ids ?? []).map(Number).filter(Boolean);
+        if (bIds.length > 1) {
+          await telegramCall("copyMessages", {
+            chat_id: fromId,
+            from_chat_id: draft.split_source_chat_id,
+            message_ids: bIds,
+          });
+        } else {
+          await telegramCall("copyMessage", {
+            chat_id: fromId,
+            from_chat_id: draft.split_source_chat_id,
+            message_id: draft.split_source_message_id,
+            ...(draft.reply_markup ? { reply_markup: draft.reply_markup } : {}),
+          });
+        }
+      }
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Preview sent" });
     } catch (e: any) {
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: `Preview failed: ${e?.message ?? "unknown"}`, show_alert: true });
