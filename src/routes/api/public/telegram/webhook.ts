@@ -1322,6 +1322,18 @@ async function handleChannelsCommand(args: {
     group: [],
   };
 
+  // Which list(s) each chat belongs to, for the [LIST] prefix.
+  const { data: listRows } = await supabaseAdmin
+    .from("chat_lists")
+    .select("category, chat_id");
+  const listsByChat = new Map<number, string[]>();
+  for (const r of (listRows as any[]) ?? []) {
+    const id = Number(r.chat_id);
+    const arr = listsByChat.get(id) ?? [];
+    if (!arr.includes(r.category)) arr.push(r.category);
+    listsByChat.set(id, arr);
+  }
+
   const entries = await Promise.all(
     chats.map(async (c: any) => {
       const botStatus = await getChatMemberStatus(c.chat_id, bot.id);
@@ -1350,11 +1362,21 @@ async function handleChannelsCommand(args: {
           console.warn("getChat failed", c.chat_id, e);
         }
       }
+      // Remember the link so we can still reach the chat after losing admin rights.
+      if (url) {
+        try {
+          await supabaseAdmin.from("telegram_chats").update({ invite_link: url }).eq("chat_id", c.chat_id);
+        } catch { /* ignore */ }
+      }
       const name = url
         ? `<a href="${url}">${escapeHtml(label)}</a>`
         : escapeHtml(label);
+      const cats = listsByChat.get(Number(c.chat_id)) ?? [];
+      const tag = cats.length
+        ? `<b>[${escapeHtml(cats.join("|").toUpperCase())}]</b> `
+        : `<b>[NONE]</b> `;
       const bucket = (c.type as "channel" | "supergroup" | "group") ?? "group";
-      return { bucket, line: `${name}${suffix} — <code>${c.chat_id}</code>` };
+      return { bucket, line: `${tag}${name}${suffix} — <code>${c.chat_id}</code>` };
     }),
   );
 
