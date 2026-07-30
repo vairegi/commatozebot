@@ -1145,6 +1145,7 @@ async function commitDraft(fromId: number, fromName: string, chatId: number) {
       created_by_name: fromName,
       source_chat_id: d.source_chat_id,
       source_message_id: d.source_message_id,
+      source_message_ids: (d as any).source_message_ids?.length ? (d as any).source_message_ids : null,
       preview_text: d.preview_text,
       scheduled_at: d.scheduled_at,
       auto_delete_seconds: d.auto_delete_seconds,
