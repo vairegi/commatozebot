@@ -67,7 +67,7 @@ const HELP_COMPACT =
   "📚 <b>Channel lists</b>\n" +
   "/lists • /showlist &lt;name&gt; • /createlist &lt;name&gt; [chat_id…] • /addtolist &lt;name&gt; &lt;chat_id…&gt; • /removefromlist &lt;name&gt; &lt;chat_id…&gt; • /dellist &lt;name&gt; • /adultchannels • /mangachannels\n\n" +
   "📣 <b>Broadcast</b>\n" +
-  "/post • /post &lt;n&gt; • /crosspost • /broadcasts • /listpost • /dltpost &lt;n&gt; • /editpost &lt;id&gt; • /cancel\n\n" +
+  "/post • /post &lt;n&gt; • /splitpost [a] [b] • /crosspost • /broadcasts • /listpost • /dltpost &lt;n&gt; • /editpost &lt;id&gt; • /cancel\n\n" +
   "🔘 <b>Buttons</b>\n" +
   "/buttons • /savebtn &lt;name&gt; • /delbtn &lt;name&gt;\n\n" +
   "📝 <b>Templates</b>\n" +
@@ -113,6 +113,7 @@ const HELP_DETAILED =
   "📣 <b>Broadcast</b> (bot admins, DM)\n" +
   "/post — start the broadcast wizard: content → channels → mode → buttons → auto-delete → schedule → confirm.\n" +
   "/post &lt;number&gt; — reuse a previous post from /listpost (jumps into the channel picker).\n" +
+  "/splitpost [a] [b] — send two different posts in one run: channels alternate 🅰️,🅱️,🅰️,🅱️… Give two /listpost numbers (<code>/splitpost 1 3</code>), one number (bot asks for post B), reply to a message with /splitpost, or send both in the wizard.\n" +
   "/listpost — numbered list of your last 20 broadcasts.\n" +
   "/dltpost &lt;number&gt; — remove a post from your history (does not delete already-sent channel messages; use /nuke for that).\n" +
   "/crosspost — same wizard but forwards with the “forwarded from” header.\n" +
@@ -1121,7 +1122,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               await handleDltPost({ fromId: from.id, argText: text ?? "", replyChatId: chat.id, chatType: chat.type, telegramCall, supabaseAdmin });
               return Response.json({ ok: true });
             }
-            if (cmd === "/post" || cmd === "/crosspost" || cmd === "/broadcasts" || cmd === "/cancel" || cmd === "/editpost" || cmd === "/savebtn" || cmd === "/buttons" || cmd === "/delbtn") {
+            if (cmd === "/post" || cmd === "/crosspost" || cmd === "/splitpost" || cmd === "/broadcasts" || cmd === "/cancel" || cmd === "/editpost" || cmd === "/savebtn" || cmd === "/buttons" || cmd === "/delbtn") {
               const handled = await handleBroadcastCommand({
                 cmd,
                 fromId: from.id,

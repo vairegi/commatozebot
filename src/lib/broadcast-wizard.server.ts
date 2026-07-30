@@ -76,6 +76,7 @@ export async function handleBroadcastCommand(args: {
   if (
     cmd !== "/post" &&
     cmd !== "/crosspost" &&
+    cmd !== "/splitpost" &&
     cmd !== "/broadcasts" &&
     cmd !== "/cancel" &&
     cmd !== "/editpost" &&
@@ -128,6 +129,12 @@ export async function handleBroadcastCommand(args: {
       mode,
       source_message_ids: null,
       media_group_id: null,
+      split_enabled: false,
+      split_source_chat_id: null,
+      split_source_message_id: null,
+      split_source_message_ids: null,
+      split_preview_text: null,
+      split_media_group_id: null,
     });
     // If /post was sent as a reply to a message, use that message as the content immediately.
     if (replyTo && replyTo.message_id && replyTo.chat?.id) {
@@ -151,6 +158,11 @@ export async function handleBroadcastCommand(args: {
         `${label}\n\nSend or forward the message you want to broadcast (text, photo, video, document, etc.).\n\nUse /cancel to abort.`,
       parse_mode: "HTML",
     });
+    return true;
+  }
+
+  if (cmd === "/splitpost") {
+    await startSplitPost(fromId, chatId, argText ?? "", replyTo);
     return true;
   }
 
@@ -191,6 +203,120 @@ export async function handleBroadcastCommand(args: {
 }
 
 async function listBroadcasts(fromId: number, chatId: number, _fromName: string) {
+  return _listBroadcasts(fromId, chatId, _fromName);
+}
+
+// ================== Split post (two variants, alternating A/B/A/B) ==================
+
+async function fetchRecentPosts(fromId: number) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data } = await supabaseAdmin
+    .from("broadcasts")
+    .select("id, preview_text, mode, source_chat_id, source_message_id, source_message_ids, reply_markup, created_at")
+    .eq("created_by", fromId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  return ((data ?? []) as any[]);
+}
+
+async function promptSplitContent(chatId: number, slot: "A" | "B") {
+  await telegramCall("sendMessage", {
+    chat_id: chatId,
+    parse_mode: "HTML",
+    text:
+      slot === "A"
+        ? "🅰️ <b>Split post — send post A</b>\n\nSend or forward the first message (text, media, or album).\n\nUse /cancel to abort."
+        : "🅱️ <b>Now send post B</b>\n\nSend or forward the second message. Channels will alternate: A, B, A, B…\n\nUse /cancel to abort.",
+  });
+}
+
+/** /splitpost [numA] [numB] — set up an A/B alternating broadcast. */
+async function startSplitPost(fromId: number, chatId: number, argText: string, replyTo?: any) {
+  const nums = argText
+    .trim()
+    .split(/\s+/)
+    .slice(1)
+    .map((s) => Number(s))
+    .filter((n) => Number.isInteger(n) && n >= 1)
+    .slice(0, 2);
+
+  await saveDraft(fromId, {
+    step: "awaiting_content",
+    source_chat_id: null,
+    source_message_id: null,
+    source_message_ids: null,
+    media_group_id: null,
+    preview_text: null,
+    source_message_json: null,
+    selected_chat_ids: [],
+    scheduled_at: null,
+    auto_delete_seconds: null,
+    editing_broadcast_id: null,
+    awaiting_custom: null,
+    reply_markup: null,
+    mode: "copy",
+    split_enabled: true,
+    split_source_chat_id: null,
+    split_source_message_id: null,
+    split_source_message_ids: null,
+    split_preview_text: null,
+    split_media_group_id: null,
+  });
+
+  if (nums.length) {
+    const rows = await fetchRecentPosts(fromId);
+    const missing = nums.filter((n) => !rows[n - 1]);
+    if (missing.length) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ No post #${missing.join(", #")} in your list. Run /listpost.` });
+      await clearDraft(fromId);
+      return;
+    }
+    const a = rows[nums[0] - 1];
+    await saveDraft(fromId, {
+      source_chat_id: Number(a.source_chat_id),
+      source_message_id: Number(a.source_message_id),
+      source_message_ids: a.source_message_ids?.length ? a.source_message_ids : null,
+      preview_text: a.preview_text ?? null,
+      mode: a.mode ?? "copy",
+      reply_markup: a.reply_markup ?? null,
+    });
+    if (nums.length === 2) {
+      const b = rows[nums[1] - 1];
+      await saveDraft(fromId, {
+        split_source_chat_id: Number(b.source_chat_id),
+        split_source_message_id: Number(b.source_message_id),
+        split_source_message_ids: b.source_message_ids?.length ? b.source_message_ids : null,
+        split_preview_text: b.preview_text ?? null,
+        step: "awaiting_channels",
+      });
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: `♻️ Split post using #${nums[0]} (A) and #${nums[1]} (B). Channels will alternate A, B, A, B…`,
+      });
+      await promptChannels(fromId, chatId);
+      return;
+    }
+    await saveDraft(fromId, { step: "awaiting_split_content" });
+    await promptSplitContent(chatId, "B");
+    return;
+  }
+
+  if (replyTo?.message_id && replyTo.chat?.id) {
+    await saveDraft(fromId, {
+      source_chat_id: replyTo.chat.id,
+      source_message_id: replyTo.message_id,
+      preview_text: previewOf(replyTo),
+      source_message_json: replyTo,
+      step: "awaiting_split_content",
+    });
+    await promptSplitContent(chatId, "B");
+    return;
+  }
+
+  await promptSplitContent(chatId, "A");
+}
+
+async function _listBroadcasts(fromId: number, chatId: number, _fromName: string) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: rows } = await supabaseAdmin
     .from("broadcasts")
@@ -412,7 +538,61 @@ export async function handleBroadcastMessage(args: {
       step: "awaiting_channels",
       selected_chat_ids: [],
     });
+    if (draft.split_enabled) {
+      await saveDraft(fromId, { step: "awaiting_split_content", source_message_json: message });
+      await promptSplitContent(chatId, "B");
+      return true;
+    }
     await promptChannels(fromId, chatId);
+    return true;
+  }
+
+  // Awaiting the second (B) post of a split broadcast
+  if (draft.step === "awaiting_split_content") {
+    if (!message.message_id || !message.chat?.id) return true;
+    if (message.media_group_id) {
+      await saveDraft(fromId, {
+        split_source_chat_id: message.chat.id,
+        split_source_message_id: message.message_id,
+        split_source_message_ids: [message.message_id],
+        split_media_group_id: String(message.media_group_id),
+        split_preview_text: previewOf(message),
+        step: "collecting_split_album",
+      });
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: "🖼 Album detected for post B — collecting items…",
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "✅ Done, pick channels", callback_data: "bc:album_done" },
+            { text: "❌ Cancel", callback_data: "bc:x" },
+          ]],
+        },
+      });
+      return true;
+    }
+    await saveDraft(fromId, {
+      split_source_chat_id: message.chat.id,
+      split_source_message_id: message.message_id,
+      split_source_message_ids: null,
+      split_media_group_id: null,
+      split_preview_text: previewOf(message),
+      step: "awaiting_channels",
+      selected_chat_ids: [],
+    });
+    await promptChannels(fromId, chatId);
+    return true;
+  }
+
+  // Collecting remaining items of post B's album
+  if (draft.step === "collecting_split_album") {
+    if (!message.message_id || !message.chat?.id) return true;
+    if (message.media_group_id && String(message.media_group_id) === String((draft as any).split_media_group_id)) {
+      const ids: number[] = ((draft as any).split_source_message_ids ?? []).map(Number);
+      if (!ids.includes(message.message_id)) ids.push(message.message_id);
+      ids.sort((a, b) => a - b);
+      await saveDraft(fromId, { split_source_message_ids: ids, split_source_message_id: ids[0] });
+    }
     return true;
   }
 
@@ -703,7 +883,15 @@ async function promptConfirm(fromId: number, chatId: number) {
     .from("telegram_chats")
     .select("chat_id, title, username")
     .in("chat_id", d.selected_chat_ids ?? []);
-  const chatLines = (chats as any[] | null | undefined)?.map((c) => `  • ${c.title ?? c.username ?? c.chat_id}`).join("\n") ?? "";
+  const selected: number[] = ((d.selected_chat_ids ?? []) as any[]).map(Number);
+  const titleOf = (cid: number) => {
+    const c = (chats as any[] | null | undefined)?.find((x) => Number(x.chat_id) === Number(cid));
+    return escapeHtml(String(c?.title ?? c?.username ?? cid));
+  };
+  const isSplit = !!d.split_enabled && !!d.split_source_message_id;
+  const chatLines = isSplit
+    ? selected.map((cid, i) => `  ${i % 2 === 0 ? "🅰️" : "🅱️"} ${titleOf(cid)}`).join("\n")
+    : selected.map((cid) => `  • ${titleOf(cid)}`).join("\n");
 
   const when = d.scheduled_at ? `⏰ ${fmtIST(d.scheduled_at)}` : "🚀 Now";
   const del = d.auto_delete_seconds ? `🗑 after ${fmtDuration(d.auto_delete_seconds)}` : "🚫 no auto-delete";
@@ -715,9 +903,11 @@ async function promptConfirm(fromId: number, chatId: number) {
   await telegramCall("sendMessage", {
     chat_id: chatId,
     text:
-      `📋 <b>Confirm broadcast</b>\n\n` +
-      `Preview: <i>${escapeHtml((d.preview_text ?? "").slice(0, 200))}</i>\n\n` +
-      `Channels (${(d.selected_chat_ids ?? []).length}):\n${chatLines}\n\n` +
+      (isSplit ? `📋 <b>Confirm split broadcast (A/B alternating)</b>\n\n` : `📋 <b>Confirm broadcast</b>\n\n`) +
+      (isSplit
+        ? `🅰️ <i>${escapeHtml((d.preview_text ?? "").slice(0, 150))}</i>\n🅱️ <i>${escapeHtml((d.split_preview_text ?? "").slice(0, 150))}</i>\n\n`
+        : `Preview: <i>${escapeHtml((d.preview_text ?? "").slice(0, 200))}</i>\n\n`) +
+      `Channels (${selected.length}):\n${chatLines}\n\n` +
       `When: ${when}\n` +
       `Delete: ${del}` + btnLine,
     parse_mode: "HTML",
@@ -771,12 +961,17 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
 
   // Album collected — move on to channel picking.
   if (op === "album_done") {
-    if (!draft || draft.step !== "collecting_album") {
+    if (!draft || (draft.step !== "collecting_album" && draft.step !== "collecting_split_album")) {
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
       return true;
     }
-    const ids: number[] = ((draft as any).source_message_ids ?? []).map(Number);
-    await saveDraft(fromId, { step: "awaiting_channels", selected_chat_ids: [] });
+    const isSplitSlot = draft.step === "collecting_split_album";
+    const ids: number[] = ((isSplitSlot ? (draft as any).split_source_message_ids : (draft as any).source_message_ids) ?? []).map(Number);
+    const needsB = !isSplitSlot && draft.split_enabled;
+    await saveDraft(fromId, {
+      step: needsB ? "awaiting_split_content" : "awaiting_channels",
+      ...(needsB ? {} : { selected_chat_ids: [] }),
+    });
     await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: `${ids.length} item(s) captured` });
     if (cq.message?.message_id) {
       try {
@@ -786,6 +981,10 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
           text: `🖼 Album captured — ${ids.length} item(s).`,
         });
       } catch { /* ignore */ }
+    }
+    if (needsB) {
+      await promptSplitContent(chatId, "B");
+      return true;
     }
     await promptChannels(fromId, chatId);
     return true;
@@ -985,6 +1184,24 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
           ...(draft.reply_markup ? { reply_markup: draft.reply_markup } : {}),
         });
       }
+      if (draft.split_enabled && draft.split_source_message_id && draft.split_source_chat_id) {
+        await telegramCall("sendMessage", { chat_id: fromId, text: "🅱️ <b>Post B</b> (every second channel):", parse_mode: "HTML" });
+        const bIds: number[] = ((draft as any).split_source_message_ids ?? []).map(Number).filter(Boolean);
+        if (bIds.length > 1) {
+          await telegramCall("copyMessages", {
+            chat_id: fromId,
+            from_chat_id: draft.split_source_chat_id,
+            message_ids: bIds,
+          });
+        } else {
+          await telegramCall("copyMessage", {
+            chat_id: fromId,
+            from_chat_id: draft.split_source_chat_id,
+            message_id: draft.split_source_message_id,
+            ...(draft.reply_markup ? { reply_markup: draft.reply_markup } : {}),
+          });
+        }
+      }
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Preview sent" });
     } catch (e: any) {
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: `Preview failed: ${e?.message ?? "unknown"}`, show_alert: true });
@@ -1147,6 +1364,12 @@ async function commitDraft(fromId: number, fromName: string, chatId: number) {
     return;
   }
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  // Split mode: two posts alternating A/B/A/B across the selected channels.
+  if (d.split_enabled && d.split_source_chat_id && d.split_source_message_id) {
+    await commitSplitDraft(fromId, fromName, chatId, d);
+    return;
+  }
   const { data: bc, error } = await supabaseAdmin
     .from("broadcasts")
     .insert({
@@ -1206,6 +1429,108 @@ async function commitDraft(fromId: number, fromName: string, chatId: number) {
 }
 
 async function showBroadcastDetail(fromId: number, chatId: number, id: string, cqId: string) {
+  return _showBroadcastDetail(fromId, chatId, id, cqId);
+}
+
+/** Create two broadcasts (A and B) and alternate the selected channels between them. */
+async function commitSplitDraft(fromId: number, fromName: string, chatId: number, d: any) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const selected: number[] = ((d.selected_chat_ids ?? []) as any[]).map(Number);
+  const groupId = crypto.randomUUID();
+
+  const { data: chats } = await supabaseAdmin
+    .from("telegram_chats")
+    .select("chat_id, title, username")
+    .in("chat_id", selected);
+  const titleOf = (cid: number) => {
+    const c = (chats as any[] | null | undefined)?.find((x) => Number(x.chat_id) === Number(cid));
+    return String(c?.title ?? c?.username ?? cid);
+  };
+
+  const variants = [
+    {
+      label: "A" as const,
+      source_chat_id: Number(d.source_chat_id),
+      source_message_id: Number(d.source_message_id),
+      source_message_ids: d.source_message_ids?.length ? d.source_message_ids : null,
+      preview_text: d.preview_text ?? null,
+      chatIds: selected.filter((_, i) => i % 2 === 0),
+    },
+    {
+      label: "B" as const,
+      source_chat_id: Number(d.split_source_chat_id),
+      source_message_id: Number(d.split_source_message_id),
+      source_message_ids: d.split_source_message_ids?.length ? d.split_source_message_ids : null,
+      preview_text: d.split_preview_text ?? null,
+      chatIds: selected.filter((_, i) => i % 2 === 1),
+    },
+  ];
+
+  const created: Array<{ label: "A" | "B"; id: string; count: number }> = [];
+  for (const v of variants) {
+    if (!v.chatIds.length) continue;
+    const { data: bc, error } = await supabaseAdmin
+      .from("broadcasts")
+      .insert({
+        created_by: fromId,
+        created_by_name: fromName,
+        source_chat_id: v.source_chat_id,
+        source_message_id: v.source_message_id,
+        source_message_ids: v.source_message_ids,
+        preview_text: v.preview_text,
+        scheduled_at: d.scheduled_at,
+        auto_delete_seconds: d.auto_delete_seconds,
+        mode: d.mode ?? "copy",
+        reply_markup: d.reply_markup ?? null,
+        status: "pending",
+        split_group_id: groupId,
+        split_variant: v.label,
+      })
+      .select("id")
+      .single();
+    if (error || !bc) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ Failed to create post ${v.label}: ${error?.message ?? "unknown"}` });
+      continue;
+    }
+    await supabaseAdmin.from("broadcast_targets").insert(
+      v.chatIds.map((cid) => ({ broadcast_id: (bc as any).id, chat_id: cid, chat_title: titleOf(cid) })),
+    );
+    created.push({ label: v.label, id: (bc as any).id, count: v.chatIds.length });
+  }
+  await clearDraft(fromId);
+
+  if (!created.length) return;
+
+  if (d.scheduled_at) {
+    await telegramCall("sendMessage", {
+      chat_id: chatId,
+      text:
+        `⏰ Split broadcast scheduled for ${fmtIST(d.scheduled_at)}.\n` +
+        created.map((c) => `${c.label === "A" ? "🅰️" : "🅱️"} ${c.count} channel${c.count === 1 ? "" : "s"}`).join("\n"),
+    });
+    return;
+  }
+
+  await telegramCall("sendMessage", {
+    chat_id: chatId,
+    text: `🚀 Sending split broadcast…\n${created.map((c) => `${c.label === "A" ? "🅰️" : "🅱️"} ${c.count} channel${c.count === 1 ? "" : "s"}`).join("\n")}`,
+  });
+  for (const c of created) {
+    try {
+      const res = await executeBroadcast(c.id);
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: `${c.label === "A" ? "🅰️" : "🅱️"} <b>Post ${c.label}</b>\n` + formatDeliveryReport(res.targets, res.status),
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      });
+    } catch (e: any) {
+      await telegramCall("sendMessage", { chat_id: chatId, text: `❌ Post ${c.label} failed: ${e?.message ?? e}` });
+    }
+  }
+}
+
+async function _showBroadcastDetail(fromId: number, chatId: number, id: string, cqId: string) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: bc } = await supabaseAdmin.from("broadcasts").select("*").eq("id", id).eq("created_by", fromId).maybeSingle();
   if (!bc) {

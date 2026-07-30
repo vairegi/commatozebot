@@ -104,6 +104,12 @@ export type Database = {
           source_message_id: number | null
           source_message_ids: number[] | null
           source_message_json: Json | null
+          split_enabled: boolean
+          split_media_group_id: string | null
+          split_preview_text: string | null
+          split_source_chat_id: number | null
+          split_source_message_id: number | null
+          split_source_message_ids: number[] | null
           step: string
           updated_at: string
           user_id: number
@@ -122,6 +128,12 @@ export type Database = {
           source_message_id?: number | null
           source_message_ids?: number[] | null
           source_message_json?: Json | null
+          split_enabled?: boolean
+          split_media_group_id?: string | null
+          split_preview_text?: string | null
+          split_source_chat_id?: number | null
+          split_source_message_id?: number | null
+          split_source_message_ids?: number[] | null
           step?: string
           updated_at?: string
           user_id: number
@@ -140,6 +152,12 @@ export type Database = {
           source_message_id?: number | null
           source_message_ids?: number[] | null
           source_message_json?: Json | null
+          split_enabled?: boolean
+          split_media_group_id?: string | null
+          split_preview_text?: string | null
+          split_source_chat_id?: number | null
+          split_source_message_id?: number | null
+          split_source_message_ids?: number[] | null
           step?: string
           updated_at?: string
           user_id?: number
@@ -323,6 +341,8 @@ export type Database = {
           source_chat_id: number
           source_message_id: number
           source_message_ids: number[] | null
+          split_group_id: string | null
+          split_variant: string | null
           status: string
           updated_at: string
         }
@@ -341,6 +361,8 @@ export type Database = {
           source_chat_id: number
           source_message_id: number
           source_message_ids?: number[] | null
+          split_group_id?: string | null
+          split_variant?: string | null
           status?: string
           updated_at?: string
         }
@@ -359,6 +381,8 @@ export type Database = {
           source_chat_id?: number
           source_message_id?: number
           source_message_ids?: number[] | null
+          split_group_id?: string | null
+          split_variant?: string | null
           status?: string
           updated_at?: string
         }
