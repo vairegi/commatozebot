@@ -254,7 +254,7 @@ export async function runNuke(args: { broadcastId: string; fromId: number }): Pr
 
   const { data: targets } = await supabaseAdmin
     .from("broadcast_targets")
-    .select("id, chat_id, sent_message_id, status")
+    .select("id, chat_id, sent_message_id, sent_message_ids, status")
     .eq("broadcast_id", args.broadcastId)
     .not("sent_message_id", "is", null)
     .neq("status", "deleted");
@@ -263,7 +263,8 @@ export async function runNuke(args: { broadcastId: string; fromId: number }): Pr
   let failed = 0;
   for (const t of (targets as any[]) ?? []) {
     try {
-      await telegramCall("deleteMessage", { chat_id: t.chat_id, message_id: t.sent_message_id });
+      const ids = (t.sent_message_ids?.length ? t.sent_message_ids : [t.sent_message_id]).map(Number);
+      await deleteTargetMessages(t.chat_id, ids);
       await supabaseAdmin
         .from("broadcast_targets")
         .update({ status: "deleted", deleted_at: new Date().toISOString(), delete_at: null })
@@ -290,6 +291,21 @@ export interface SendResultTarget {
   link?: string | null;
 }
 
+/** Gap between per-channel sends, keeping us well under Telegram's ~30 msg/s ceiling. */
+const PACE_MS = 1200;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Delete one target's message(s), handling albums (multiple message ids). */
+export async function deleteTargetMessages(chatId: number, ids: number[]): Promise<void> {
+  const clean = ids.map(Number).filter(Boolean);
+  if (!clean.length) throw new Error("no message_id");
+  if (clean.length === 1) {
+    await telegramCall("deleteMessage", { chat_id: chatId, message_id: clean[0] });
+    return;
+  }
+  await telegramCall("deleteMessages", { chat_id: chatId, message_ids: clean });
+}
+
 /** Copy the source message to every target chat. */
 export async function executeBroadcast(broadcastId: string): Promise<{
   targets: SendResultTarget[];
@@ -299,7 +315,7 @@ export async function executeBroadcast(broadcastId: string): Promise<{
 
   const { data: bc, error: bcErr } = await supabaseAdmin
     .from("broadcasts")
-    .select("id, source_chat_id, source_message_id, auto_delete_seconds, status, mode, reply_markup")
+    .select("id, source_chat_id, source_message_id, source_message_ids, auto_delete_seconds, status, mode, reply_markup")
     .eq("id", broadcastId)
     .maybeSingle();
   if (bcErr || !bc) throw new Error(`broadcast not found: ${broadcastId}`);
@@ -335,16 +351,37 @@ export async function executeBroadcast(broadcastId: string): Promise<{
 
   const results: SendResultTarget[] = [];
   const nowMs = Date.now();
-  for (const t of targets ?? []) {
+  const albumIds: number[] = ((bc as any).source_message_ids ?? []).map(Number).filter(Boolean);
+  const isAlbum = albumIds.length > 1;
+  const list = targets ?? [];
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i];
+    // Send-rate pacing: Telegram allows ~30 msg/s overall but throttles hard per
+    // chat. Spacing sends keeps big broadcasts under the limit; a broadcast may
+    // take a minute or two to fully land, which is fine.
+    if (i > 0) await sleep(PACE_MS);
     try {
-      const payload: Record<string, any> = {
-        chat_id: t.chat_id,
-        from_chat_id: bc.source_chat_id,
-        message_id: bc.source_message_id,
-      };
-      if (replyMarkup) payload.reply_markup = replyMarkup;
-      const res = await telegramCall(effectiveMethod, payload);
-      const mid = res?.message_id as number | undefined;
+      let mid: number | undefined;
+      let mids: number[] | null = null;
+      if (isAlbum) {
+        // Albums must be copied as a group; reply_markup is not supported by Telegram here.
+        const res = await telegramCall("copyMessages", {
+          chat_id: t.chat_id,
+          from_chat_id: bc.source_chat_id,
+          message_ids: albumIds,
+        });
+        mids = Array.isArray(res) ? res.map((m: any) => Number(m.message_id)).filter(Boolean) : null;
+        mid = mids?.[0];
+      } else {
+        const payload: Record<string, any> = {
+          chat_id: t.chat_id,
+          from_chat_id: bc.source_chat_id,
+          message_id: bc.source_message_id,
+        };
+        if (replyMarkup) payload.reply_markup = replyMarkup;
+        const res = await telegramCall(effectiveMethod, payload);
+        mid = res?.message_id as number | undefined;
+      }
       const deleteAt = bc.auto_delete_seconds
         ? new Date(nowMs + bc.auto_delete_seconds * 1000).toISOString()
         : null;
@@ -353,6 +390,7 @@ export async function executeBroadcast(broadcastId: string): Promise<{
         .update({
           status: "sent",
           sent_message_id: mid ?? null,
+          sent_message_ids: mids,
           delete_at: deleteAt,
           error: null,
         })
@@ -652,7 +690,7 @@ export async function tickBroadcasts(): Promise<{
   // 2) auto-delete
   const { data: toDelete } = await supabaseAdmin
     .from("broadcast_targets")
-    .select("id, broadcast_id, chat_id, chat_title, sent_message_id")
+    .select("id, broadcast_id, chat_id, chat_title, sent_message_id, sent_message_ids")
     .eq("status", "sent")
     .not("delete_at", "is", null)
     .lte("delete_at", nowIso)
@@ -677,7 +715,8 @@ export async function tickBroadcasts(): Promise<{
       continue;
     }
     try {
-      await telegramCall("deleteMessage", { chat_id: t.chat_id, message_id: t.sent_message_id });
+      const ids = ((t as any).sent_message_ids?.length ? (t as any).sent_message_ids : [t.sent_message_id]).map(Number);
+      await deleteTargetMessages(t.chat_id, ids);
       await supabaseAdmin
         .from("broadcast_targets")
         .update({ status: "deleted", deleted_at: new Date().toISOString() })

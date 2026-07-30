@@ -844,6 +844,24 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
             console.warn("bot_status columns not yet migrated", e);
           }
 
+          // While we still have admin rights, capture an invite link so we can
+          // point admins back to the chat even after the bot is kicked.
+          if (isAdmin && !c.username) {
+            try {
+              const info = await telegramCall("getChat", { chat_id: c.id });
+              let link: string | undefined = info?.invite_link;
+              if (!link) {
+                const created = await telegramCall("exportChatInviteLink", { chat_id: c.id });
+                if (typeof created === "string") link = created;
+              }
+              if (link) {
+                await supabaseAdmin.from("telegram_chats").update({ invite_link: link }).eq("chat_id", c.id);
+              }
+            } catch (e) {
+              console.warn("invite link capture failed", c.id, e);
+            }
+          }
+
           // Alert bot admins when bot loses admin rights or is removed/kicked from a chat
           if (wasAdmin && !isAdmin) {
             try {
@@ -859,9 +877,15 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               if (c.username) {
                 deepLink = `https://t.me/${c.username}`;
               } else {
-                const idStr = String(c.id);
-                if (idStr.startsWith("-100")) {
-                  deepLink = `https://t.me/c/${idStr.slice(4)}`;
+                const { data: stored } = await supabaseAdmin
+                  .from("telegram_chats")
+                  .select("invite_link")
+                  .eq("chat_id", c.id)
+                  .maybeSingle();
+                deepLink = (stored as any)?.invite_link ?? null;
+                if (!deepLink) {
+                  const idStr = String(c.id);
+                  if (idStr.startsWith("-100")) deepLink = `https://t.me/c/${idStr.slice(4)}`;
                 }
               }
               let reason = "demoted from admin";
@@ -1322,6 +1346,18 @@ async function handleChannelsCommand(args: {
     group: [],
   };
 
+  // Which list(s) each chat belongs to, for the [LIST] prefix.
+  const { data: listRows } = await supabaseAdmin
+    .from("chat_lists")
+    .select("category, chat_id");
+  const listsByChat = new Map<number, string[]>();
+  for (const r of (listRows as any[]) ?? []) {
+    const id = Number(r.chat_id);
+    const arr = listsByChat.get(id) ?? [];
+    if (!arr.includes(r.category)) arr.push(r.category);
+    listsByChat.set(id, arr);
+  }
+
   const entries = await Promise.all(
     chats.map(async (c: any) => {
       const botStatus = await getChatMemberStatus(c.chat_id, bot.id);
@@ -1350,11 +1386,21 @@ async function handleChannelsCommand(args: {
           console.warn("getChat failed", c.chat_id, e);
         }
       }
+      // Remember the link so we can still reach the chat after losing admin rights.
+      if (url) {
+        try {
+          await supabaseAdmin.from("telegram_chats").update({ invite_link: url }).eq("chat_id", c.chat_id);
+        } catch { /* ignore */ }
+      }
       const name = url
         ? `<a href="${url}">${escapeHtml(label)}</a>`
         : escapeHtml(label);
+      const cats = listsByChat.get(Number(c.chat_id)) ?? [];
+      const tag = cats.length
+        ? `<b>[${escapeHtml(cats.join("|").toUpperCase())}]</b> `
+        : `<b>[NONE]</b> `;
       const bucket = (c.type as "channel" | "supergroup" | "group") ?? "group";
-      return { bucket, line: `${name}${suffix} — <code>${c.chat_id}</code>` };
+      return { bucket, line: `${tag}${name}${suffix} — <code>${c.chat_id}</code>` };
     }),
   );
 

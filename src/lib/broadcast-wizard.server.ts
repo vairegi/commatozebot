@@ -126,6 +126,8 @@ export async function handleBroadcastCommand(args: {
       source_message_json: null,
       reply_markup: null,
       mode,
+      source_message_ids: null,
+      media_group_id: null,
     });
     // If /post was sent as a reply to a message, use that message as the content immediately.
     if (replyTo && replyTo.message_id && replyTo.chat?.id) {
@@ -378,14 +380,51 @@ export async function handleBroadcastMessage(args: {
   if (draft.step === "awaiting_content") {
     // Any message with an id is fine
     if (!message.message_id || !message.chat?.id) return true;
+    // Album (media group): Telegram delivers each item as its own update.
+    if (message.media_group_id) {
+      await saveDraft(fromId, {
+        source_chat_id: message.chat.id,
+        source_message_id: message.message_id,
+        source_message_ids: [message.message_id],
+        media_group_id: String(message.media_group_id),
+        preview_text: previewOf(message),
+        step: "collecting_album",
+        selected_chat_ids: [],
+      });
+      await telegramCall("sendMessage", {
+        chat_id: chatId,
+        text: "🖼 Album detected — collecting items…",
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "✅ Done, pick channels", callback_data: "bc:album_done" },
+            { text: "❌ Cancel", callback_data: "bc:x" },
+          ]],
+        },
+      });
+      return true;
+    }
     await saveDraft(fromId, {
       source_chat_id: message.chat.id,
       source_message_id: message.message_id,
+      source_message_ids: null,
+      media_group_id: null,
       preview_text: previewOf(message),
       step: "awaiting_channels",
       selected_chat_ids: [],
     });
     await promptChannels(fromId, chatId);
+    return true;
+  }
+
+  // Collecting remaining items of an album
+  if (draft.step === "collecting_album") {
+    if (!message.message_id || !message.chat?.id) return true;
+    if (message.media_group_id && String(message.media_group_id) === String((draft as any).media_group_id)) {
+      const ids: number[] = ((draft as any).source_message_ids ?? []).map(Number);
+      if (!ids.includes(message.message_id)) ids.push(message.message_id);
+      ids.sort((a, b) => a - b);
+      await saveDraft(fromId, { source_message_ids: ids, source_message_id: ids[0] });
+    }
     return true;
   }
 
@@ -730,6 +769,28 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     return true;
   }
 
+  // Album collected — move on to channel picking.
+  if (op === "album_done") {
+    if (!draft || draft.step !== "collecting_album") {
+      await telegramCall("answerCallbackQuery", { callback_query_id: cq.id });
+      return true;
+    }
+    const ids: number[] = ((draft as any).source_message_ids ?? []).map(Number);
+    await saveDraft(fromId, { step: "awaiting_channels", selected_chat_ids: [] });
+    await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: `${ids.length} item(s) captured` });
+    if (cq.message?.message_id) {
+      try {
+        await telegramCall("editMessageText", {
+          chat_id: chatId,
+          message_id: cq.message.message_id,
+          text: `🖼 Album captured — ${ids.length} item(s).`,
+        });
+      } catch { /* ignore */ }
+    }
+    await promptChannels(fromId, chatId);
+    return true;
+  }
+
   if (op === "pre" && draft) {
     const categories: Array<"adult" | "manga"> =
       arg === "adult" ? ["adult"] : arg === "manga" ? ["manga"] : arg === "both" ? ["adult", "manga"] : [];
@@ -909,12 +970,21 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
     }
     try {
       await telegramCall("sendMessage", { chat_id: fromId, text: "👁 <b>Preview</b> — this is exactly what channels will receive:", parse_mode: "HTML" });
-      await telegramCall("copyMessage", {
-        chat_id: fromId,
-        from_chat_id: draft.source_chat_id,
-        message_id: draft.source_message_id,
-        ...(draft.reply_markup ? { reply_markup: draft.reply_markup } : {}),
-      });
+      const albumIds: number[] = ((draft as any).source_message_ids ?? []).map(Number).filter(Boolean);
+      if (albumIds.length > 1) {
+        await telegramCall("copyMessages", {
+          chat_id: fromId,
+          from_chat_id: draft.source_chat_id,
+          message_ids: albumIds,
+        });
+      } else {
+        await telegramCall("copyMessage", {
+          chat_id: fromId,
+          from_chat_id: draft.source_chat_id,
+          message_id: draft.source_message_id,
+          ...(draft.reply_markup ? { reply_markup: draft.reply_markup } : {}),
+        });
+      }
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Preview sent" });
     } catch (e: any) {
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: `Preview failed: ${e?.message ?? "unknown"}`, show_alert: true });
@@ -1084,6 +1154,7 @@ async function commitDraft(fromId: number, fromName: string, chatId: number) {
       created_by_name: fromName,
       source_chat_id: d.source_chat_id,
       source_message_id: d.source_message_id,
+      source_message_ids: (d as any).source_message_ids?.length ? (d as any).source_message_ids : null,
       preview_text: d.preview_text,
       scheduled_at: d.scheduled_at,
       auto_delete_seconds: d.auto_delete_seconds,
