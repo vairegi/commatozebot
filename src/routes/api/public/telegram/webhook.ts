@@ -61,7 +61,7 @@ const HELP_COMPACT =
   "🤖 <b>Bot commands</b>\n" +
   "Type /description for full details.\n\n" +
   "🧭 <b>General</b>\n" +
-  "/start • /help • /description • /whoami • /ping • /id • /rules\n\n" +
+  "/start • /help • /description • /whoami • /ping • /restart • /id • /rules\n\n" +
   "📡 <b>Channels</b>\n" +
   "/channels • /leave [chat_id] • /invite &lt;chat_id&gt;\n\n" +
   "📚 <b>Channel lists</b>\n" +
@@ -95,6 +95,7 @@ const HELP_DETAILED =
   "/description — this detailed reference\n" +
   "/whoami — show your bot role (owner / admin / user)\n" +
   "/ping — check the bot is alive\n" +
+  "/restart — clear any stuck wizard/step state and start fresh (alias /reset).\n" +
   "/id — show your Telegram ID and current chat ID\n" +
   "/rules — show the group rules (in a group)\n\n" +
   "📡 <b>Channels</b> (bot admins)\n" +
@@ -1153,6 +1154,13 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               }
             } else if (cmd === "/ping") {
               await telegramCall("sendMessage", { chat_id: chat.id, text: "pong 🏓" });
+            } else if (cmd === "/restart" || cmd === "/reset") {
+              await supabaseAdmin.from("broadcast_drafts").delete().eq("user_id", from.id);
+              await telegramCall("sendMessage", {
+                chat_id: chat.id,
+                text: "🔄 <b>Reset done.</b>\nAll pending wizard state was cleared. Start fresh with /post, /splitpost or /help.",
+                parse_mode: "HTML",
+              });
             } else if (cmd === "/id") {
               await telegramCall("sendMessage", {
                 chat_id: chat.id,
