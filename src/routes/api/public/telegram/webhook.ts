@@ -1153,6 +1153,13 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
               }
             } else if (cmd === "/ping") {
               await telegramCall("sendMessage", { chat_id: chat.id, text: "pong 🏓" });
+            } else if (cmd === "/restart" || cmd === "/reset") {
+              await supabaseAdmin.from("broadcast_drafts").delete().eq("user_id", from.id);
+              await telegramCall("sendMessage", {
+                chat_id: chat.id,
+                text: "🔄 <b>Reset done.</b>\nAll pending wizard state was cleared. Start fresh with /post, /splitpost or /help.",
+                parse_mode: "HTML",
+              });
             } else if (cmd === "/id") {
               await telegramCall("sendMessage", {
                 chat_id: chat.id,
