@@ -375,6 +375,15 @@ export async function handleBroadcastMessage(args: {
   const draft = await getDraft(fromId);
   if (!draft) return false;
 
+  // Escape hatch: never swallow slash-commands. If the user types any command
+  // while the wizard is waiting for free text, drop the pending text-input flag
+  // and let normal command routing handle it (prevents getting stuck).
+  const rawText: string = typeof message.text === "string" ? message.text : "";
+  if (rawText.startsWith("/")) {
+    if (draft.awaiting_custom) await saveDraft(fromId, { awaiting_custom: null });
+    return false;
+  }
+
   // Awaiting custom text input (schedule or auto-delete)
   if (draft.awaiting_custom === "schedule" && message.text) {
     const when = parseScheduleIST(message.text);
@@ -424,11 +433,21 @@ export async function handleBroadcastMessage(args: {
   if (draft.awaiting_custom === "savebtn" && message.text) {
     const raw = message.text;
     const nl = raw.indexOf("\n");
-    const name = (nl === -1 ? raw : raw.slice(0, nl)).trim();
-    const spec = nl === -1 ? "" : raw.slice(nl + 1);
-    if (!name || !spec.trim()) {
-      await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Send: first line = preset name, then button lines." });
-      return true;
+    let name = (nl === -1 ? raw : raw.slice(0, nl)).trim();
+    let spec = nl === -1 ? "" : raw.slice(nl + 1);
+    // Single line like "Label - https://url" → treat the whole thing as the
+    // button spec and auto-name the preset, instead of dead-ending.
+    if (!spec.trim()) {
+      if (/https?:\/\/|t\.me\//i.test(name)) {
+        spec = name;
+        name = `preset_${Date.now().toString().slice(-6)}`;
+      } else {
+        await telegramCall("sendMessage", {
+          chat_id: chatId,
+          text: "❌ Send: first line = preset name, then button lines.\n\nExample:\nmy_preset\nChannel - https://t.me/x | Bot - https://t.me/y\n\nOr just send the button line alone and I'll name it for you. /cancel to abort.",
+        });
+        return true;
+      }
     }
     try {
       const kb = parseButtonSpec(spec);
