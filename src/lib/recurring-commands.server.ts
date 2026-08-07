@@ -16,12 +16,11 @@ async function isBotAdmin(supabaseAdmin: any, fromId: number): Promise<boolean> 
   return !!data;
 }
 
-/** Same ordering as /listpost so numbers line up. */
-async function fetchUserBroadcasts(supabaseAdmin: any, fromId: number) {
+/** Same ordering as /listpost (shared across all admins) so numbers line up. */
+async function fetchUserBroadcasts(supabaseAdmin: any, _fromId: number) {
   const { data } = await supabaseAdmin
     .from("broadcasts")
     .select("id, source_chat_id, source_message_id, preview_text, mode, reply_markup, auto_delete_seconds, created_by, sent_at, scheduled_at, created_at, status")
-    .eq("created_by", fromId)
     .order("created_at", { ascending: false })
     .limit(20);
   return (data ?? []) as any[];
