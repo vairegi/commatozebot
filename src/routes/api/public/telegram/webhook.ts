@@ -85,7 +85,7 @@ const HELP_COMPACT =
   "📊 <b>Stats</b>\n" +
   "/stats\n\n" +
   "🛡 <b>Admin management</b>\n" +
-  "/addadmin &lt;user_id&gt; [super] • /radmin &lt;user_id&gt; • /listadmins";
+  "/addadmin &lt;user_id&gt; [super] • /addadmin &lt;chat_id&gt; &lt;user_id&gt; • /radmin &lt;user_id&gt; • /listadmins";
 
 // Full descriptions shown for /description.
 const HELP_DETAILED =
@@ -155,6 +155,7 @@ const HELP_DETAILED =
   "/stats — global bot stats (bot admins).\n\n" +
   "🛡 <b>Admin management</b>\n" +
   "/addadmin &lt;user_id&gt; [super] — grant bot access. <code>super</code> makes them a super admin (super admins only).\n" +
+  "/addadmin &lt;chat_id&gt; &lt;user_id&gt; — promote that user as admin in the chat with <b>all</b> permissions.\n" +
   "/radmin &lt;user_id&gt; — revoke bot access (super admins only for other super admins).\n" +
   "/listadmins — list bot admins.\n" +
   "(The first caller becomes the owner 👑 automatically.)";
@@ -1350,6 +1351,15 @@ async function handleChannelsCommand(args: {
   }
 
   const bot = await getBotIdentity();
+  // Resolve the partner bot once; used to tag channels where it is also admin.
+  const PARTNER_BOT = "@InsideAds_bot";
+  let partnerId: number | null = null;
+  try {
+    const info = await telegramCall("getChat", { chat_id: PARTNER_BOT });
+    partnerId = Number(info?.id) || null;
+  } catch (e) {
+    console.warn("getChat partner bot failed", e);
+  }
   const buckets: Record<"channel" | "supergroup" | "group", string[]> = {
     channel: [],
     supergroup: [],
@@ -1373,6 +1383,12 @@ async function handleChannelsCommand(args: {
       const botStatus = await getChatMemberStatus(c.chat_id, bot.id);
       const botAdmin = botStatus === "administrator" || botStatus === "creator";
       if (!botAdmin) return null;
+
+      let partnerTag = "";
+      if (partnerId) {
+        const ps = await getChatMemberStatus(c.chat_id, partnerId);
+        if (ps === "administrator" || ps === "creator") partnerTag = "✅IAds ";
+      }
 
       const label = c.title || c.username || `Chat ${c.chat_id}`;
       let url: string | undefined;
@@ -1413,7 +1429,7 @@ async function handleChannelsCommand(args: {
       return {
         bucket,
         cats: cats.map((x) => String(x).toUpperCase()),
-        line: `${tag}${name}${suffix} — <code>${c.chat_id}</code>`,
+        line: `${partnerTag}${tag}${name}${suffix} — <code>${c.chat_id}</code>`,
       };
     }),
   );
@@ -1649,6 +1665,57 @@ async function handleBotAdminCommands(args: {
 
   // /addadmin and /radmin require a user_id argument
   const parts = argText.trim().split(/\s+/).slice(1);
+
+  // /addadmin <channel_id> <user_id> — promote a user inside a chat with all rights.
+  if (
+    cmd === "/addadmin" &&
+    parts.length >= 2 &&
+    Number.isFinite(Number(parts[0])) &&
+    Number.isFinite(Number(parts[1]))
+  ) {
+    const chatId = Number(parts[0]);
+    const userId = Number(parts[1]);
+    try {
+      await telegramCall("promoteChatMember", {
+        chat_id: chatId,
+        user_id: userId,
+        is_anonymous: false,
+        can_manage_chat: true,
+        can_post_messages: true,
+        can_edit_messages: true,
+        can_delete_messages: true,
+        can_manage_video_chats: true,
+        can_restrict_members: true,
+        can_promote_members: true,
+        can_change_info: true,
+        can_invite_users: true,
+        can_pin_messages: true,
+        can_post_stories: true,
+        can_edit_stories: true,
+        can_delete_stories: true,
+        can_manage_topics: true,
+      });
+    } catch (e: any) {
+      await send(`❌ Promote failed: ${e?.message ?? String(e)}`);
+      return;
+    }
+    let chatLabel = String(chatId);
+    try {
+      const info = await telegramCall("getChat", { chat_id: chatId });
+      chatLabel = info?.title ?? info?.username ?? chatLabel;
+    } catch { /* ignore */ }
+    let userLabel = String(userId);
+    try {
+      const m = await telegramCall("getChatMember", { chat_id: chatId, user_id: userId });
+      userLabel = m?.user?.first_name ?? (m?.user?.username ? `@${m.user.username}` : userLabel);
+    } catch { /* ignore */ }
+    await send(
+      `✅ Promoted ${escapeHtml(userLabel)} (<code>${userId}</code>) with all permissions in <b>${escapeHtml(chatLabel)}</b> (<code>${chatId}</code>).`,
+      { parse_mode: "HTML" },
+    );
+    return;
+  }
+
   const rawArg = parts[0];
   const targetId = Number(rawArg);
   if (!rawArg || !Number.isFinite(targetId)) {
