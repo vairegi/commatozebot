@@ -291,9 +291,41 @@ export interface SendResultTarget {
   link?: string | null;
 }
 
-/** Gap between per-channel sends, keeping us well under Telegram's ~30 msg/s ceiling. */
-const PACE_MS = 1200;
+/** Sends are issued in small parallel waves so 50+ channel broadcasts finish fast
+ *  while staying well under Telegram's ~30 msg/s ceiling. */
+const WAVE_SIZE = 5;
+const WAVE_GAP_MS = 900;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Telegram does not allow an inline keyboard on a media group (album).
+ * To still get buttons under a multi-image post we send a tiny companion
+ * message replying to the album that carries the keyboard. Its message id is
+ * tracked with the album so auto-delete / nuke removes it too.
+ */
+export async function sendAlbumButtons(
+  chatId: number,
+  replyMarkup: any,
+  replyToMessageId?: number,
+): Promise<number | null> {
+  const base: Record<string, any> = {
+    chat_id: chatId,
+    reply_markup: replyMarkup,
+    disable_notification: true,
+  };
+  if (replyToMessageId) base.reply_parameters = { message_id: replyToMessageId, allow_sending_without_reply: true };
+  try {
+    const res = await telegramCall("sendMessage", { ...base, text: "\u2063" });
+    return res?.message_id ?? null;
+  } catch {
+    try {
+      const res = await telegramCall("sendMessage", { ...base, text: "👇" });
+      return res?.message_id ?? null;
+    } catch {
+      return null;
+    }
+  }
+}
 
 /** Delete one target's message(s), handling albums (multiple message ids). */
 export async function deleteTargetMessages(chatId: number, ids: number[]): Promise<void> {
