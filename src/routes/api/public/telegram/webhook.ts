@@ -1350,6 +1350,15 @@ async function handleChannelsCommand(args: {
   }
 
   const bot = await getBotIdentity();
+  // Resolve the partner bot once; used to tag channels where it is also admin.
+  const PARTNER_BOT = "@InsideAds_bot";
+  let partnerId: number | null = null;
+  try {
+    const info = await telegramCall("getChat", { chat_id: PARTNER_BOT });
+    partnerId = Number(info?.id) || null;
+  } catch (e) {
+    console.warn("getChat partner bot failed", e);
+  }
   const buckets: Record<"channel" | "supergroup" | "group", string[]> = {
     channel: [],
     supergroup: [],
@@ -1373,6 +1382,12 @@ async function handleChannelsCommand(args: {
       const botStatus = await getChatMemberStatus(c.chat_id, bot.id);
       const botAdmin = botStatus === "administrator" || botStatus === "creator";
       if (!botAdmin) return null;
+
+      let partnerTag = "";
+      if (partnerId) {
+        const ps = await getChatMemberStatus(c.chat_id, partnerId);
+        if (ps === "administrator" || ps === "creator") partnerTag = "✅IAds ";
+      }
 
       const label = c.title || c.username || `Chat ${c.chat_id}`;
       let url: string | undefined;
@@ -1413,7 +1428,7 @@ async function handleChannelsCommand(args: {
       return {
         bucket,
         cats: cats.map((x) => String(x).toUpperCase()),
-        line: `${tag}${name}${suffix} — <code>${c.chat_id}</code>`,
+        line: `${partnerTag}${tag}${name}${suffix} — <code>${c.chat_id}</code>`,
       };
     }),
   );
