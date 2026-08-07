@@ -657,11 +657,11 @@ function formatName(u: { first_name?: string; last_name?: string; username?: str
 }
 
 // Fetch this admin's recent broadcasts (newest first). Numbers are 1-based against this list.
-async function fetchListPost(supabaseAdmin: any, fromId: number) {
+// Post history is shared across all bot admins so any admin can reuse a post.
+async function fetchListPost(supabaseAdmin: any, _fromId?: number) {
   const { data } = await supabaseAdmin
     .from("broadcasts")
-    .select("id, preview_text, status, mode, scheduled_at, sent_at, created_at, source_chat_id, source_message_id, reply_markup")
-    .eq("created_by", fromId)
+    .select("id, preview_text, status, mode, scheduled_at, sent_at, created_at, source_chat_id, source_message_id, reply_markup, created_by, created_by_name")
     .order("created_at", { ascending: false })
     .limit(20);
   return (data ?? []) as any[];
@@ -683,16 +683,17 @@ async function handleListPost(args: {
   void chatType;
   const rows = await fetchListPost(supabaseAdmin, fromId);
   if (!rows.length) {
-    await telegramCall("sendMessage", { chat_id: replyChatId, text: "You haven't created any broadcasts yet. Use /post to make one." });
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: "No broadcasts yet. Use /post to make one." });
     return;
   }
-  const lines: string[] = ["🗂 <b>Your recent posts</b>", ""];
+  const lines: string[] = ["🗂 <b>Recent posts (all admins)</b>", ""];
   rows.forEach((r, i) => {
     const n = i + 1;
     const badge = r.mode === "forward" ? "🔁" : "📝";
     const when = r.sent_at ?? r.scheduled_at ?? r.created_at;
     const preview = escapeHtml((r.preview_text ?? "").slice(0, 70));
-    lines.push(`<b>${n}.</b> ${badge} <b>${r.status}</b> — ${escapeHtml(String(when).slice(0, 16).replace("T", " "))}\n   ${preview}`);
+    const who = r.created_by_name ? ` · 👤 ${escapeHtml(String(r.created_by_name))}` : "";
+    lines.push(`<b>${n}.</b> ${badge} <b>${r.status}</b> — ${escapeHtml(String(when).slice(0, 16).replace("T", " "))}${who}\n   ${preview}`);
   });
   lines.push("", "Reuse: <code>/post &lt;number&gt;</code>", "Delete from history: <code>/dltpost &lt;number&gt;</code>");
   await telegramCall("sendMessage", { chat_id: replyChatId, text: lines.join("\n"), parse_mode: "HTML" });
@@ -1409,13 +1410,30 @@ async function handleChannelsCommand(args: {
         ? `<b>[${escapeHtml(cats.join("|").toUpperCase())}]</b> `
         : `<b>[NONE]</b> `;
       const bucket = (c.type as "channel" | "supergroup" | "group") ?? "group";
-      return { bucket, line: `${tag}${name}${suffix} — <code>${c.chat_id}</code>` };
+      return {
+        bucket,
+        cats: cats.map((x) => String(x).toUpperCase()),
+        line: `${tag}${name}${suffix} — <code>${c.chat_id}</code>`,
+      };
     }),
   );
 
-  // Preserve DB order (oldest first, newest last)
-  for (const e of entries) {
-    if (e) buckets[e.bucket as "channel" | "supergroup" | "group"].push(e.line);
+  // Order by category: MINE → ADULT → MANGA → any other list → [NONE] last.
+  const PRIORITY = ["MINE", "ADULT", "MANGA"];
+  const rank = (cats: string[]) => {
+    if (!cats.length) return 10_000; // [NONE] goes last
+    let best = 9_999;
+    for (const c of cats) {
+      const i = PRIORITY.indexOf(c);
+      best = Math.min(best, i >= 0 ? i : 100);
+    }
+    return best;
+  };
+  const ordered = (entries.filter(Boolean) as any[])
+    .map((e, i) => ({ ...e, i }))
+    .sort((a, b) => rank(a.cats) - rank(b.cats) || a.i - b.i);
+  for (const e of ordered) {
+    buckets[e.bucket as "channel" | "supergroup" | "group"].push(e.line);
   }
 
   const numbered = (items: string[]) =>

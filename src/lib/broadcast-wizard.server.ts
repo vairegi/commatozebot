@@ -1190,11 +1190,16 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
       await telegramCall("sendMessage", { chat_id: fromId, text: "👁 <b>Preview</b> — this is exactly what channels will receive:", parse_mode: "HTML" });
       const albumIds: number[] = ((draft as any).source_message_ids ?? []).map(Number).filter(Boolean);
       if (albumIds.length > 1) {
-        await telegramCall("copyMessages", {
+        const res = await telegramCall("copyMessages", {
           chat_id: fromId,
           from_chat_id: draft.source_chat_id,
           message_ids: albumIds,
         });
+        if (draft.reply_markup) {
+          const { sendAlbumButtons } = await import("@/lib/broadcast.server");
+          const first = Array.isArray(res) ? Number(res[0]?.message_id) : undefined;
+          await sendAlbumButtons(fromId, draft.reply_markup, first);
+        }
       } else {
         await telegramCall("copyMessage", {
           chat_id: fromId,
@@ -1207,11 +1212,16 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
         await telegramCall("sendMessage", { chat_id: fromId, text: "🅱️ <b>Post B</b> (every second channel):", parse_mode: "HTML" });
         const bIds: number[] = ((draft as any).split_source_message_ids ?? []).map(Number).filter(Boolean);
         if (bIds.length > 1) {
-          await telegramCall("copyMessages", {
+          const resB = await telegramCall("copyMessages", {
             chat_id: fromId,
             from_chat_id: draft.split_source_chat_id,
             message_ids: bIds,
           });
+          if (draft.reply_markup) {
+            const { sendAlbumButtons } = await import("@/lib/broadcast.server");
+            const firstB = Array.isArray(resB) ? Number(resB[0]?.message_id) : undefined;
+            await sendAlbumButtons(fromId, draft.reply_markup, firstB);
+          }
         } else {
           await telegramCall("copyMessage", {
             chat_id: fromId,

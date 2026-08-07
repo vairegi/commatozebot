@@ -291,9 +291,41 @@ export interface SendResultTarget {
   link?: string | null;
 }
 
-/** Gap between per-channel sends, keeping us well under Telegram's ~30 msg/s ceiling. */
-const PACE_MS = 1200;
+/** Sends are issued in small parallel waves so 50+ channel broadcasts finish fast
+ *  while staying well under Telegram's ~30 msg/s ceiling. */
+const WAVE_SIZE = 5;
+const WAVE_GAP_MS = 900;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Telegram does not allow an inline keyboard on a media group (album).
+ * To still get buttons under a multi-image post we send a tiny companion
+ * message replying to the album that carries the keyboard. Its message id is
+ * tracked with the album so auto-delete / nuke removes it too.
+ */
+export async function sendAlbumButtons(
+  chatId: number,
+  replyMarkup: any,
+  replyToMessageId?: number,
+): Promise<number | null> {
+  const base: Record<string, any> = {
+    chat_id: chatId,
+    reply_markup: replyMarkup,
+    disable_notification: true,
+  };
+  if (replyToMessageId) base.reply_parameters = { message_id: replyToMessageId, allow_sending_without_reply: true };
+  try {
+    const res = await telegramCall("sendMessage", { ...base, text: "\u2063" });
+    return res?.message_id ?? null;
+  } catch {
+    try {
+      const res = await telegramCall("sendMessage", { ...base, text: "👇" });
+      return res?.message_id ?? null;
+    } catch {
+      return null;
+    }
+  }
+}
 
 /** Delete one target's message(s), handling albums (multiple message ids). */
 export async function deleteTargetMessages(chatId: number, ids: number[]): Promise<void> {
@@ -354,17 +386,13 @@ export async function executeBroadcast(broadcastId: string): Promise<{
   const albumIds: number[] = ((bc as any).source_message_ids ?? []).map(Number).filter(Boolean);
   const isAlbum = albumIds.length > 1;
   const list = targets ?? [];
-  for (let i = 0; i < list.length; i++) {
-    const t = list[i];
-    // Send-rate pacing: Telegram allows ~30 msg/s overall but throttles hard per
-    // chat. Spacing sends keeps big broadcasts under the limit; a broadcast may
-    // take a minute or two to fully land, which is fine.
-    if (i > 0) await sleep(PACE_MS);
+  const sendOne = async (t: any) => {
     try {
       let mid: number | undefined;
       let mids: number[] | null = null;
       if (isAlbum) {
-        // Albums must be copied as a group; reply_markup is not supported by Telegram here.
+        // Albums must be copied as a group; Telegram rejects reply_markup here,
+        // so buttons ride on a companion message replying to the album.
         const res = await telegramCall("copyMessages", {
           chat_id: t.chat_id,
           from_chat_id: bc.source_chat_id,
@@ -372,6 +400,10 @@ export async function executeBroadcast(broadcastId: string): Promise<{
         });
         mids = Array.isArray(res) ? res.map((m: any) => Number(m.message_id)).filter(Boolean) : null;
         mid = mids?.[0];
+        if (replyMarkup && mid) {
+          const btnId = await sendAlbumButtons(t.chat_id, replyMarkup, mid);
+          if (btnId) mids = [...(mids ?? []), btnId];
+        }
       } else {
         const payload: Record<string, any> = {
           chat_id: t.chat_id,
@@ -419,6 +451,13 @@ export async function executeBroadcast(broadcastId: string): Promise<{
         error: msg,
       });
     }
+  };
+
+  // Send in small parallel waves: 50+ channels finish in seconds instead of
+  // minutes, while the wave size + gap keeps us far below Telegram's limits.
+  for (let i = 0; i < list.length; i += WAVE_SIZE) {
+    if (i > 0) await sleep(WAVE_GAP_MS);
+    await Promise.all(list.slice(i, i + WAVE_SIZE).map((t: any) => sendOne(t)));
   }
 
   const okCount = results.filter((r) => r.ok).length;
