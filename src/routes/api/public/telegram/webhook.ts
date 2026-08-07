@@ -1409,13 +1409,30 @@ async function handleChannelsCommand(args: {
         ? `<b>[${escapeHtml(cats.join("|").toUpperCase())}]</b> `
         : `<b>[NONE]</b> `;
       const bucket = (c.type as "channel" | "supergroup" | "group") ?? "group";
-      return { bucket, line: `${tag}${name}${suffix} — <code>${c.chat_id}</code>` };
+      return {
+        bucket,
+        cats: cats.map((x) => String(x).toUpperCase()),
+        line: `${tag}${name}${suffix} — <code>${c.chat_id}</code>`,
+      };
     }),
   );
 
-  // Preserve DB order (oldest first, newest last)
-  for (const e of entries) {
-    if (e) buckets[e.bucket as "channel" | "supergroup" | "group"].push(e.line);
+  // Order by category: MINE → ADULT → MANGA → any other list → [NONE] last.
+  const PRIORITY = ["MINE", "ADULT", "MANGA"];
+  const rank = (cats: string[]) => {
+    if (!cats.length) return 10_000; // [NONE] goes last
+    let best = 9_999;
+    for (const c of cats) {
+      const i = PRIORITY.indexOf(c);
+      best = Math.min(best, i >= 0 ? i : 100);
+    }
+    return best;
+  };
+  const ordered = (entries.filter(Boolean) as any[])
+    .map((e, i) => ({ ...e, i }))
+    .sort((a, b) => rank(a.cats) - rank(b.cats) || a.i - b.i);
+  for (const e of ordered) {
+    buckets[e.bucket as "channel" | "supergroup" | "group"].push(e.line);
   }
 
   const numbered = (items: string[]) =>
