@@ -386,17 +386,13 @@ export async function executeBroadcast(broadcastId: string): Promise<{
   const albumIds: number[] = ((bc as any).source_message_ids ?? []).map(Number).filter(Boolean);
   const isAlbum = albumIds.length > 1;
   const list = targets ?? [];
-  for (let i = 0; i < list.length; i++) {
-    const t = list[i];
-    // Send-rate pacing: Telegram allows ~30 msg/s overall but throttles hard per
-    // chat. Spacing sends keeps big broadcasts under the limit; a broadcast may
-    // take a minute or two to fully land, which is fine.
-    if (i > 0) await sleep(PACE_MS);
+  const sendOne = async (t: any) => {
     try {
       let mid: number | undefined;
       let mids: number[] | null = null;
       if (isAlbum) {
-        // Albums must be copied as a group; reply_markup is not supported by Telegram here.
+        // Albums must be copied as a group; Telegram rejects reply_markup here,
+        // so buttons ride on a companion message replying to the album.
         const res = await telegramCall("copyMessages", {
           chat_id: t.chat_id,
           from_chat_id: bc.source_chat_id,
@@ -404,6 +400,10 @@ export async function executeBroadcast(broadcastId: string): Promise<{
         });
         mids = Array.isArray(res) ? res.map((m: any) => Number(m.message_id)).filter(Boolean) : null;
         mid = mids?.[0];
+        if (replyMarkup && mid) {
+          const btnId = await sendAlbumButtons(t.chat_id, replyMarkup, mid);
+          if (btnId) mids = [...(mids ?? []), btnId];
+        }
       } else {
         const payload: Record<string, any> = {
           chat_id: t.chat_id,
@@ -451,6 +451,13 @@ export async function executeBroadcast(broadcastId: string): Promise<{
         error: msg,
       });
     }
+  };
+
+  // Send in small parallel waves: 50+ channels finish in seconds instead of
+  // minutes, while the wave size + gap keeps us far below Telegram's limits.
+  for (let i = 0; i < list.length; i += WAVE_SIZE) {
+    if (i > 0) await sleep(WAVE_GAP_MS);
+    await Promise.all(list.slice(i, i + WAVE_SIZE).map((t: any) => sendOne(t)));
   }
 
   const okCount = results.filter((r) => r.ok).length;
