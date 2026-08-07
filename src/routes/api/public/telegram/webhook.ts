@@ -85,7 +85,7 @@ const HELP_COMPACT =
   "📊 <b>Stats</b>\n" +
   "/stats\n\n" +
   "🛡 <b>Admin management</b>\n" +
-  "/addadmin &lt;user_id&gt; [super] • /radmin &lt;user_id&gt; • /listadmins";
+  "/addadmin &lt;user_id&gt; [super] • /addadmin &lt;chat_id&gt; &lt;user_id&gt; • /radmin &lt;user_id&gt; • /listadmins";
 
 // Full descriptions shown for /description.
 const HELP_DETAILED =
@@ -155,6 +155,7 @@ const HELP_DETAILED =
   "/stats — global bot stats (bot admins).\n\n" +
   "🛡 <b>Admin management</b>\n" +
   "/addadmin &lt;user_id&gt; [super] — grant bot access. <code>super</code> makes them a super admin (super admins only).\n" +
+  "/addadmin &lt;chat_id&gt; &lt;user_id&gt; — promote that user as admin in the chat with <b>all</b> permissions.\n" +
   "/radmin &lt;user_id&gt; — revoke bot access (super admins only for other super admins).\n" +
   "/listadmins — list bot admins.\n" +
   "(The first caller becomes the owner 👑 automatically.)";
