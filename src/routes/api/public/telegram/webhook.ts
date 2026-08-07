@@ -657,11 +657,11 @@ function formatName(u: { first_name?: string; last_name?: string; username?: str
 }
 
 // Fetch this admin's recent broadcasts (newest first). Numbers are 1-based against this list.
-async function fetchListPost(supabaseAdmin: any, fromId: number) {
+// Post history is shared across all bot admins so any admin can reuse a post.
+async function fetchListPost(supabaseAdmin: any, _fromId?: number) {
   const { data } = await supabaseAdmin
     .from("broadcasts")
-    .select("id, preview_text, status, mode, scheduled_at, sent_at, created_at, source_chat_id, source_message_id, reply_markup")
-    .eq("created_by", fromId)
+    .select("id, preview_text, status, mode, scheduled_at, sent_at, created_at, source_chat_id, source_message_id, reply_markup, created_by, created_by_name")
     .order("created_at", { ascending: false })
     .limit(20);
   return (data ?? []) as any[];
@@ -683,16 +683,17 @@ async function handleListPost(args: {
   void chatType;
   const rows = await fetchListPost(supabaseAdmin, fromId);
   if (!rows.length) {
-    await telegramCall("sendMessage", { chat_id: replyChatId, text: "You haven't created any broadcasts yet. Use /post to make one." });
+    await telegramCall("sendMessage", { chat_id: replyChatId, text: "No broadcasts yet. Use /post to make one." });
     return;
   }
-  const lines: string[] = ["🗂 <b>Your recent posts</b>", ""];
+  const lines: string[] = ["🗂 <b>Recent posts (all admins)</b>", ""];
   rows.forEach((r, i) => {
     const n = i + 1;
     const badge = r.mode === "forward" ? "🔁" : "📝";
     const when = r.sent_at ?? r.scheduled_at ?? r.created_at;
     const preview = escapeHtml((r.preview_text ?? "").slice(0, 70));
-    lines.push(`<b>${n}.</b> ${badge} <b>${r.status}</b> — ${escapeHtml(String(when).slice(0, 16).replace("T", " "))}\n   ${preview}`);
+    const who = r.created_by_name ? ` · 👤 ${escapeHtml(String(r.created_by_name))}` : "";
+    lines.push(`<b>${n}.</b> ${badge} <b>${r.status}</b> — ${escapeHtml(String(when).slice(0, 16).replace("T", " "))}${who}\n   ${preview}`);
   });
   lines.push("", "Reuse: <code>/post &lt;number&gt;</code>", "Delete from history: <code>/dltpost &lt;number&gt;</code>");
   await telegramCall("sendMessage", { chat_id: replyChatId, text: lines.join("\n"), parse_mode: "HTML" });
