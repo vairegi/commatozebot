@@ -1664,6 +1664,57 @@ async function handleBotAdminCommands(args: {
 
   // /addadmin and /radmin require a user_id argument
   const parts = argText.trim().split(/\s+/).slice(1);
+
+  // /addadmin <channel_id> <user_id> — promote a user inside a chat with all rights.
+  if (
+    cmd === "/addadmin" &&
+    parts.length >= 2 &&
+    Number.isFinite(Number(parts[0])) &&
+    Number.isFinite(Number(parts[1]))
+  ) {
+    const chatId = Number(parts[0]);
+    const userId = Number(parts[1]);
+    try {
+      await telegramCall("promoteChatMember", {
+        chat_id: chatId,
+        user_id: userId,
+        is_anonymous: false,
+        can_manage_chat: true,
+        can_post_messages: true,
+        can_edit_messages: true,
+        can_delete_messages: true,
+        can_manage_video_chats: true,
+        can_restrict_members: true,
+        can_promote_members: true,
+        can_change_info: true,
+        can_invite_users: true,
+        can_pin_messages: true,
+        can_post_stories: true,
+        can_edit_stories: true,
+        can_delete_stories: true,
+        can_manage_topics: true,
+      });
+    } catch (e: any) {
+      await send(`❌ Promote failed: ${e?.message ?? String(e)}`);
+      return;
+    }
+    let chatLabel = String(chatId);
+    try {
+      const info = await telegramCall("getChat", { chat_id: chatId });
+      chatLabel = info?.title ?? info?.username ?? chatLabel;
+    } catch { /* ignore */ }
+    let userLabel = String(userId);
+    try {
+      const m = await telegramCall("getChatMember", { chat_id: chatId, user_id: userId });
+      userLabel = m?.user?.first_name ?? (m?.user?.username ? `@${m.user.username}` : userLabel);
+    } catch { /* ignore */ }
+    await send(
+      `✅ Promoted ${escapeHtml(userLabel)} (<code>${userId}</code>) with all permissions in <b>${escapeHtml(chatLabel)}</b> (<code>${chatId}</code>).`,
+      { parse_mode: "HTML" },
+    );
+    return;
+  }
+
   const rawArg = parts[0];
   const targetId = Number(rawArg);
   if (!rawArg || !Number.isFinite(targetId)) {
