@@ -63,7 +63,7 @@ const HELP_COMPACT =
   "🧭 <b>General</b>\n" +
   "/start • /help • /description • /whoami • /ping • /restart • /id • /rules\n\n" +
   "📡 <b>Channels</b>\n" +
-  "/channels • /leave [chat_id] • /invite &lt;chat_id&gt;\n\n" +
+  "/channels • /checkmember &lt;user_id|@username&gt; • /leave [chat_id] • /invite &lt;chat_id&gt;\n\n" +
   "📚 <b>Channel lists</b>\n" +
   "/lists • /showlist &lt;name&gt; • /createlist &lt;name&gt; [chat_id…] • /addtolist &lt;name&gt; &lt;chat_id…&gt; • /removefromlist &lt;name&gt; &lt;chat_id…&gt; • /dellist &lt;name&gt; • /adultchannels • /mangachannels\n\n" +
   "📣 <b>Broadcast</b>\n" +
@@ -100,6 +100,7 @@ const HELP_DETAILED =
   "/rules — show the group rules (in a group)\n\n" +
   "📡 <b>Channels</b> (bot admins)\n" +
   "/channels — DM only. List every group/channel where I'm admin, in the order I was added, with invite links.\n" +
+  "/checkmember &lt;user_id|@username&gt; — DM only. Check every chat where I'm admin and mark 👤 if that user is in it, ❌👤 if not.\n" +
   "/leave [chat_id] — make me leave the current chat, or (in DM) a chat by ID.\n" +
   "/invite &lt;chat_id&gt; — get or generate an invite link for a private chat.\n\n" +
   "📚 <b>Channel lists</b> (bot admins, DM)\n" +
@@ -1228,6 +1229,22 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 getChatMemberStatus,
                 supabaseAdmin,
               });
+            } else if (cmd === "/checkmember") {
+              if (chat.type !== "private") {
+                await telegramCall("sendMessage", {
+                  chat_id: chat.id,
+                  text: "🔒 Use /checkmember in a private chat with me.",
+                });
+              } else {
+                await handleCheckMemberCommand({
+                  dmChatId: chat.id,
+                  argText: text,
+                  supabaseAdmin,
+                  telegramCall,
+                  getBotIdentity,
+                  getChatMemberStatus,
+                });
+              }
             } else if (cmd === "/addadmin" || cmd === "/radmin" || cmd === "/listadmins") {
               await handleBotAdminCommands({
                 cmd,
@@ -1473,6 +1490,158 @@ async function handleChannelsCommand(args: {
     parse_mode: "HTML",
     disable_web_page_preview: true,
   });
+}
+
+async function handleCheckMemberCommand(args: {
+  dmChatId: number;
+  argText: string;
+  supabaseAdmin: any;
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  getBotIdentity: () => Promise<{ id: number; username?: string }>;
+  getChatMemberStatus: (chatId: number, userId: number) => Promise<string | null>;
+}) {
+  const { dmChatId, argText, supabaseAdmin, telegramCall, getBotIdentity, getChatMemberStatus } = args;
+
+  const raw = argText.trim().split(/\s+/).slice(1).join(" ").trim();
+  if (!raw) {
+    await telegramCall("sendMessage", {
+      chat_id: dmChatId,
+      text: "Usage: /checkmember <user_id|@username>",
+    });
+    return;
+  }
+
+  let targetId: number | null = Number.isFinite(Number(raw)) ? Number(raw) : null;
+  let targetLabel = raw;
+  if (targetId === null) {
+    const uname = raw.startsWith("@") ? raw : `@${raw}`;
+    try {
+      const info = await telegramCall("getChat", { chat_id: uname });
+      targetId = Number(info?.id) || null;
+      targetLabel = info?.username ? `@${info.username}` : uname;
+    } catch {
+      targetId = null;
+    }
+    if (!targetId) {
+      await telegramCall("sendMessage", {
+        chat_id: dmChatId,
+        text: `❌ Couldn't resolve ${escapeHtml(uname)}. Telegram only resolves usernames I've seen before — try the numeric user ID.`,
+        parse_mode: "HTML",
+      });
+      return;
+    }
+  }
+
+  await telegramCall("sendMessage", { chat_id: dmChatId, text: "🔍 Checking chats…" });
+
+  const { data: chats } = await supabaseAdmin
+    .from("telegram_chats")
+    .select("chat_id, title, type, username, invite_link, first_seen_at")
+    .in("type", ["group", "supergroup", "channel"])
+    .order("first_seen_at", { ascending: true })
+    .limit(200);
+
+  if (!chats?.length) {
+    await telegramCall("sendMessage", { chat_id: dmChatId, text: "I'm not in any groups or channels yet." });
+    return;
+  }
+
+  const bot = await getBotIdentity();
+
+  const { data: listRows } = await supabaseAdmin.from("chat_lists").select("category, chat_id");
+  const listsByChat = new Map<number, string[]>();
+  for (const r of (listRows as any[]) ?? []) {
+    const id = Number(r.chat_id);
+    const arr = listsByChat.get(id) ?? [];
+    if (!arr.includes(r.category)) arr.push(r.category);
+    listsByChat.set(id, arr);
+  }
+
+  const PRESENT = new Set(["creator", "administrator", "member", "restricted"]);
+
+  const entries = await Promise.all(
+    (chats as any[]).map(async (c) => {
+      const botStatus = await getChatMemberStatus(c.chat_id, bot.id);
+      if (botStatus !== "administrator" && botStatus !== "creator") return null;
+
+      const st = await getChatMemberStatus(c.chat_id, targetId!);
+      const mark = st && PRESENT.has(st) ? "👤" : "❌👤";
+
+      const label = c.title || c.username || `Chat ${c.chat_id}`;
+      let url: string | undefined = c.username ? `https://t.me/${c.username}` : c.invite_link || undefined;
+      if (!url) {
+        try {
+          const info = await telegramCall("getChat", { chat_id: c.chat_id });
+          url = info?.invite_link;
+          if (!url) {
+            try {
+              const created = await telegramCall("exportChatInviteLink", { chat_id: c.chat_id });
+              if (typeof created === "string") url = created;
+            } catch { /* ignore */ }
+          }
+          if (url) {
+            try {
+              await supabaseAdmin.from("telegram_chats").update({ invite_link: url }).eq("chat_id", c.chat_id);
+            } catch { /* ignore */ }
+          }
+        } catch { /* ignore */ }
+      }
+      const name = url ? `<a href="${url}">${escapeHtml(label)}</a>` : `${escapeHtml(label)} 🔒`;
+      const cats = (listsByChat.get(Number(c.chat_id)) ?? []).map((x) => String(x).toUpperCase());
+      const tag = cats.length ? `<b>[${escapeHtml(cats.join("|"))}]</b>` : `<b>[NONE]</b>`;
+      return {
+        cats,
+        present: mark === "👤",
+        line: `${tag} ${mark} ${name} — <code>${c.chat_id}</code>`,
+      };
+    }),
+  );
+
+  const PRIORITY = ["MINE", "ADULT", "MANGA"];
+  const rank = (cats: string[]) => {
+    if (!cats.length) return 10_000;
+    let best = 9_999;
+    for (const c of cats) {
+      const i = PRIORITY.indexOf(c);
+      best = Math.min(best, i >= 0 ? i : 100);
+    }
+    return best;
+  };
+  const ordered = (entries.filter(Boolean) as any[])
+    .map((e, i) => ({ ...e, i }))
+    .sort((a, b) => rank(a.cats) - rank(b.cats) || a.i - b.i);
+
+  if (!ordered.length) {
+    await telegramCall("sendMessage", { chat_id: dmChatId, text: "No chats found where I am admin." });
+    return;
+  }
+
+  const inCount = ordered.filter((e) => e.present).length;
+  const header =
+    `👤 <b>Membership check</b> for <code>${escapeHtml(targetLabel)}</code> (<code>${targetId}</code>)\n` +
+    `In ${inCount} of ${ordered.length} chats\n`;
+
+  const lines = ordered.map((e, i) => `<b>${i + 1}.</b> ${e.line}`);
+  // Chunk to stay under Telegram's 4096-char message limit.
+  const chunks: string[] = [];
+  let cur = header;
+  for (const l of lines) {
+    if (cur.length + l.length + 2 > 3800) {
+      chunks.push(cur);
+      cur = "";
+    }
+    cur += `\n${l}`;
+  }
+  if (cur.trim()) chunks.push(cur);
+
+  for (const chunk of chunks) {
+    await telegramCall("sendMessage", {
+      chat_id: dmChatId,
+      text: chunk,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
+  }
 }
 
 async function handleLeaveCommand(args: {
