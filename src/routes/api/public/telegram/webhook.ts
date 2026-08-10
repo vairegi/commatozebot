@@ -63,7 +63,7 @@ const HELP_COMPACT =
   "🧭 <b>General</b>\n" +
   "/start • /help • /description • /whoami • /ping • /restart • /id • /rules\n\n" +
   "📡 <b>Channels</b>\n" +
-  "/channels • /leave [chat_id] • /invite &lt;chat_id&gt;\n\n" +
+  "/channels • /checkmember &lt;user_id|@username&gt; • /leave [chat_id] • /invite &lt;chat_id&gt;\n\n" +
   "📚 <b>Channel lists</b>\n" +
   "/lists • /showlist &lt;name&gt; • /createlist &lt;name&gt; [chat_id…] • /addtolist &lt;name&gt; &lt;chat_id…&gt; • /removefromlist &lt;name&gt; &lt;chat_id…&gt; • /dellist &lt;name&gt; • /adultchannels • /mangachannels\n\n" +
   "📣 <b>Broadcast</b>\n" +
@@ -100,6 +100,7 @@ const HELP_DETAILED =
   "/rules — show the group rules (in a group)\n\n" +
   "📡 <b>Channels</b> (bot admins)\n" +
   "/channels — DM only. List every group/channel where I'm admin, in the order I was added, with invite links.\n" +
+  "/checkmember &lt;user_id|@username&gt; — DM only. Check every chat where I'm admin and mark 👤 if that user is in it, ❌👤 if not.\n" +
   "/leave [chat_id] — make me leave the current chat, or (in DM) a chat by ID.\n" +
   "/invite &lt;chat_id&gt; — get or generate an invite link for a private chat.\n\n" +
   "📚 <b>Channel lists</b> (bot admins, DM)\n" +
