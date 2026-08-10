@@ -1492,16 +1492,6 @@ async function handleChannelsCommand(args: {
   });
 }
 
-async function handleLeaveCommand(args: {
-  fromId: number;
-  replyChatId: number;
-  currentChat: { id: number; type: string };
-  argText: string;
-  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
-  getChatMemberStatus: (chatId: number, userId: number) => Promise<string | null>;
-  supabaseAdmin: any;
-}): Promise<void>;
-
 async function handleCheckMemberCommand(args: {
   dmChatId: number;
   argText: string;
