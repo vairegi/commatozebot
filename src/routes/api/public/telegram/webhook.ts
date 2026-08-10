@@ -1229,6 +1229,32 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 getChatMemberStatus,
                 supabaseAdmin,
               });
+            } else if (cmd === "/checkmember") {
+              if (chat.type !== "private") {
+                await telegramCall("sendMessage", {
+                  chat_id: chat.id,
+                  text: "🔒 Use /checkmember in a private chat with me.",
+                });
+              } else {
+                await handleCheckMemberCommand({
+                  dmChatId: chat.id,
+                  argText: text,
+                  supabaseAdmin,
+                  telegramCall,
+                  getBotIdentity,
+                  getChatMemberStatus,
+                });
+              }
+            } else if (cmd === "__never__") {
+              await handleLeaveCommand({
+                fromId: from.id,
+                replyChatId: chat.id,
+                currentChat: chat,
+                argText: text,
+                telegramCall,
+                getChatMemberStatus,
+                supabaseAdmin,
+              });
             } else if (cmd === "/addadmin" || cmd === "/radmin" || cmd === "/listadmins") {
               await handleBotAdminCommands({
                 cmd,
