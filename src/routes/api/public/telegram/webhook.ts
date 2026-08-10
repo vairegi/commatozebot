@@ -1245,16 +1245,6 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                   getChatMemberStatus,
                 });
               }
-            } else if (cmd === "__never__") {
-              await handleLeaveCommand({
-                fromId: from.id,
-                replyChatId: chat.id,
-                currentChat: chat,
-                argText: text,
-                telegramCall,
-                getChatMemberStatus,
-                supabaseAdmin,
-              });
             } else if (cmd === "/addadmin" || cmd === "/radmin" || cmd === "/listadmins") {
               await handleBotAdminCommands({
                 cmd,
