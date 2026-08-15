@@ -1612,6 +1612,18 @@ async function cancelAutoDeletes(fromId: number, chatId: number, id: string, cqI
 
 // ================== Button presets ==================
 
+/** Presets are shared across all bot admins: one row per name, any admin can save/overwrite/use it. */
+async function upsertSharedPreset(fromId: number, name: string, kb: any[][]) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  await supabaseAdmin.from("broadcast_button_presets").delete().eq("name", name);
+  await supabaseAdmin.from("broadcast_button_presets").insert({
+    user_id: fromId,
+    name,
+    buttons: { inline_keyboard: kb },
+    updated_at: new Date().toISOString(),
+  });
+}
+
 async function promptButtonsMenu(fromId: number, chatId: number) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: presets } = await supabaseAdmin
