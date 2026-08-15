@@ -1,0 +1,1 @@
+REVOKE ALL ON FUNCTION public.tg_mirror_to_turso() FROM PUBLIC, anon, authenticated;
