@@ -17,6 +17,7 @@ import { Route as AuthenticatedBotEventsRouteImport } from './routes/_authentica
 import { Route as AuthenticatedChatsChatIdRouteImport } from './routes/_authenticated/chats.$chatId'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram/webhook'
 import { Route as ApiPublicHooksPermissionCheckRouteImport } from './routes/api/public/hooks/permission-check'
+import { Route as ApiPublicHooksMirrorRouteImport } from './routes/api/public/hooks/mirror'
 import { Route as ApiPublicHooksBroadcastTickRouteImport } from './routes/api/public/hooks/broadcast-tick'
 import { Route as ApiPublicHooksBackupWeeklyRouteImport } from './routes/api/public/hooks/backup-weekly'
 
@@ -62,6 +63,11 @@ const ApiPublicHooksPermissionCheckRoute =
     path: '/api/public/hooks/permission-check',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksMirrorRoute = ApiPublicHooksMirrorRouteImport.update({
+  id: '/api/public/hooks/mirror',
+  path: '/api/public/hooks/mirror',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicHooksBroadcastTickRoute =
   ApiPublicHooksBroadcastTickRouteImport.update({
     id: '/api/public/hooks/broadcast-tick',
@@ -83,6 +89,7 @@ export interface FileRoutesByFullPath {
   '/chats/$chatId': typeof AuthenticatedChatsChatIdRoute
   '/api/public/hooks/backup-weekly': typeof ApiPublicHooksBackupWeeklyRoute
   '/api/public/hooks/broadcast-tick': typeof ApiPublicHooksBroadcastTickRoute
+  '/api/public/hooks/mirror': typeof ApiPublicHooksMirrorRoute
   '/api/public/hooks/permission-check': typeof ApiPublicHooksPermissionCheckRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
 }
@@ -94,6 +101,7 @@ export interface FileRoutesByTo {
   '/chats/$chatId': typeof AuthenticatedChatsChatIdRoute
   '/api/public/hooks/backup-weekly': typeof ApiPublicHooksBackupWeeklyRoute
   '/api/public/hooks/broadcast-tick': typeof ApiPublicHooksBroadcastTickRoute
+  '/api/public/hooks/mirror': typeof ApiPublicHooksMirrorRoute
   '/api/public/hooks/permission-check': typeof ApiPublicHooksPermissionCheckRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
 }
@@ -107,6 +115,7 @@ export interface FileRoutesById {
   '/_authenticated/chats/$chatId': typeof AuthenticatedChatsChatIdRoute
   '/api/public/hooks/backup-weekly': typeof ApiPublicHooksBackupWeeklyRoute
   '/api/public/hooks/broadcast-tick': typeof ApiPublicHooksBroadcastTickRoute
+  '/api/public/hooks/mirror': typeof ApiPublicHooksMirrorRoute
   '/api/public/hooks/permission-check': typeof ApiPublicHooksPermissionCheckRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
 }
@@ -120,6 +129,7 @@ export interface FileRouteTypes {
     | '/chats/$chatId'
     | '/api/public/hooks/backup-weekly'
     | '/api/public/hooks/broadcast-tick'
+    | '/api/public/hooks/mirror'
     | '/api/public/hooks/permission-check'
     | '/api/public/telegram/webhook'
   fileRoutesByTo: FileRoutesByTo
@@ -131,6 +141,7 @@ export interface FileRouteTypes {
     | '/chats/$chatId'
     | '/api/public/hooks/backup-weekly'
     | '/api/public/hooks/broadcast-tick'
+    | '/api/public/hooks/mirror'
     | '/api/public/hooks/permission-check'
     | '/api/public/telegram/webhook'
   id:
@@ -143,6 +154,7 @@ export interface FileRouteTypes {
     | '/_authenticated/chats/$chatId'
     | '/api/public/hooks/backup-weekly'
     | '/api/public/hooks/broadcast-tick'
+    | '/api/public/hooks/mirror'
     | '/api/public/hooks/permission-check'
     | '/api/public/telegram/webhook'
   fileRoutesById: FileRoutesById
@@ -153,6 +165,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ApiPublicHooksBackupWeeklyRoute: typeof ApiPublicHooksBackupWeeklyRoute
   ApiPublicHooksBroadcastTickRoute: typeof ApiPublicHooksBroadcastTickRoute
+  ApiPublicHooksMirrorRoute: typeof ApiPublicHooksMirrorRoute
   ApiPublicHooksPermissionCheckRoute: typeof ApiPublicHooksPermissionCheckRoute
   ApiPublicTelegramWebhookRoute: typeof ApiPublicTelegramWebhookRoute
 }
@@ -215,6 +228,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksPermissionCheckRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/mirror': {
+      id: '/api/public/hooks/mirror'
+      path: '/api/public/hooks/mirror'
+      fullPath: '/api/public/hooks/mirror'
+      preLoaderRoute: typeof ApiPublicHooksMirrorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/hooks/broadcast-tick': {
       id: '/api/public/hooks/broadcast-tick'
       path: '/api/public/hooks/broadcast-tick'
@@ -253,6 +273,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ApiPublicHooksBackupWeeklyRoute: ApiPublicHooksBackupWeeklyRoute,
   ApiPublicHooksBroadcastTickRoute: ApiPublicHooksBroadcastTickRoute,
+  ApiPublicHooksMirrorRoute: ApiPublicHooksMirrorRoute,
   ApiPublicHooksPermissionCheckRoute: ApiPublicHooksPermissionCheckRoute,
   ApiPublicTelegramWebhookRoute: ApiPublicTelegramWebhookRoute,
 }
