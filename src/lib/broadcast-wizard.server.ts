@@ -451,11 +451,7 @@ export async function handleBroadcastMessage(args: {
     }
     try {
       const kb = parseButtonSpec(spec);
-      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-      await supabaseAdmin.from("broadcast_button_presets").upsert(
-        { user_id: fromId, name, buttons: { inline_keyboard: kb }, updated_at: new Date().toISOString() },
-        { onConflict: "user_id,name" },
-      );
+      await upsertSharedPreset(fromId, name, kb);
       await saveDraft(fromId, { awaiting_custom: null });
       await telegramCall("sendMessage", {
         chat_id: chatId,
@@ -1281,7 +1277,6 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
       .from("broadcast_button_presets")
       .select("name, buttons")
       .eq("id", arg)
-      .eq("user_id", fromId)
       .maybeSingle();
     if (!preset) {
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "Preset not found", show_alert: true });
@@ -1622,7 +1617,6 @@ async function promptButtonsMenu(fromId: number, chatId: number) {
   const { data: presets } = await supabaseAdmin
     .from("broadcast_button_presets")
     .select("id, name")
-    .eq("user_id", fromId)
     .order("name", { ascending: true })
     .limit(20);
   const rows: any[][] = [];
@@ -1645,18 +1639,17 @@ async function listButtonPresets(fromId: number, chatId: number) {
   const { data: presets } = await supabaseAdmin
     .from("broadcast_button_presets")
     .select("name, buttons, updated_at")
-    .eq("user_id", fromId)
     .order("name", { ascending: true });
   if (!presets?.length) {
     await telegramCall("sendMessage", {
       chat_id: chatId,
       parse_mode: "HTML",
       text:
-        "You have no saved button presets.\n\nSave one with <code>/savebtn</code> then reply with:\n<pre>preset name\nLabel - https://url | Label2 - https://url2\nRow2 - https://url</pre>",
+        "No saved button presets yet.\n\nSave one with <code>/savebtn</code> then reply with:\n<pre>preset name\nLabel - https://url | Label2 - https://url2\nRow2 - https://url</pre>",
     });
     return;
   }
-  const lines: string[] = ["🔘 <b>Your button presets</b>\n"];
+  const lines: string[] = ["🔘 <b>Shared button presets</b>\n"];
   for (const p of presets as any[]) {
     const kb = (p.buttons?.inline_keyboard ?? []) as any[][];
     lines.push(`<b>${escapeHtml(p.name)}</b>\n<pre>${escapeHtml(kb.map((r) => r.map((b: any) => `[${b.text}]`).join(" ")).join("\n"))}</pre>`);
@@ -1695,11 +1688,7 @@ async function saveButtonPresetCommand(fromId: number, chatId: number, argText: 
   }
   try {
     const kb = parseButtonSpec(spec);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    await supabaseAdmin.from("broadcast_button_presets").upsert(
-      { user_id: fromId, name, buttons: { inline_keyboard: kb }, updated_at: new Date().toISOString() },
-      { onConflict: "user_id,name" },
-    );
+    await upsertSharedPreset(fromId, name, kb);
     await telegramCall("sendMessage", {
       chat_id: chatId,
       parse_mode: "HTML",
@@ -1719,7 +1708,6 @@ async function deleteButtonPreset(fromId: number, chatId: number, name: string) 
   const { error, count } = await supabaseAdmin
     .from("broadcast_button_presets")
     .delete({ count: "exact" })
-    .eq("user_id", fromId)
     .eq("name", name);
   if (error) {
     await telegramCall("sendMessage", { chat_id: chatId, text: `❌ ${error.message}` });
