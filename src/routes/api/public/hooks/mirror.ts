@@ -12,7 +12,13 @@ export const Route = createFileRoute("/api/public/hooks/mirror")({
         const secret = process.env.MIRROR_HOOK_SECRET;
         const provided =
           request.headers.get("x-mirror-secret") ?? request.headers.get("X-Mirror-Secret");
-        if (!secret || provided !== secret) {
+        // Database triggers authenticate with the project key instead, since
+        // Postgres cannot read the worker's env vars.
+        const apikey = request.headers.get("apikey") ?? request.headers.get("Apikey");
+        const projectKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+        const ok =
+          (!!secret && provided === secret) || (!!projectKey && apikey === projectKey);
+        if (!ok) {
           return new Response("Unauthorized", { status: 401 });
         }
 
