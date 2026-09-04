@@ -56,7 +56,7 @@ export function rowKey(table: string, row: Record<string, unknown>): string {
 function endpoint(): string {
   const raw = process.env.TURSO_DATABASE_URL;
   if (!raw) throw new Error("TURSO_DATABASE_URL is not set");
-  const https = raw.replace(/^libsql:\/\//, "https://").replace(/\/$/, "");
+  const https = raw.replace(/^(libsql|turso|wss):\/\//, "https://").replace(/\/$/, "");
   return `${https}/v2/pipeline`;
 }
 
