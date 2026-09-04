@@ -37,11 +37,20 @@ async function getDraft(userId: number) {
 
 async function saveDraft(userId: number, patch: Record<string, any>) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  await supabaseAdmin.from("broadcast_drafts").upsert(
-    { user_id: userId, ...patch, updated_at: new Date().toISOString() },
-    { onConflict: "user_id" },
-  );
+  // Update-then-insert instead of upsert: an upsert sends a full row and resets
+  // any column missing from the patch (that silently wiped the post content
+  // whenever a later step, e.g. adding buttons, saved only a couple of fields).
+  const { data: updated } = await supabaseAdmin
+    .from("broadcast_drafts")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .select("user_id");
+  if (updated && (updated as any[]).length) return;
+  await supabaseAdmin
+    .from("broadcast_drafts")
+    .insert({ user_id: userId, ...patch, updated_at: new Date().toISOString() });
 }
+
 
 async function clearDraft(userId: number) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
