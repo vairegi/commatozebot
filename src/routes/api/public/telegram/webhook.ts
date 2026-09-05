@@ -100,6 +100,8 @@ const HELP_DETAILED =
   "/rules — show the group rules (in a group)\n\n" +
   "📡 <b>Channels</b> (bot admins)\n" +
   "/channels — DM only. List every group/channel where I'm admin, in the order I was added, with invite links.\n" +
+  "/track [chat_id|@username] — register a chat I'm already admin in (use if I was promoted while offline and it's missing from /channels). Works inside the chat too.\n" +
+
   "/checkmember &lt;user_id|@username&gt; — DM only. Check every chat where I'm admin and mark 👤 if that user is in it, ❌👤 if not.\n" +
   "/leave [chat_id] — make me leave the current chat, or (in DM) a chat by ID.\n" +
   "/invite &lt;chat_id&gt; — get or generate an invite link for a private chat.\n\n" +
