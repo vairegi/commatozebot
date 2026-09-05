@@ -1371,7 +1371,107 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
   },
 });
 
+/**
+ * Manually register a chat the bot is already admin in. Needed when the
+ * promotion happened while the backend was offline/paused, so Telegram's
+ * my_chat_member update never reached us.
+ */
+async function handleTrackCommand(args: {
+  fromId: number;
+  replyChatId: number;
+  currentChat: any;
+  argText: string;
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  getBotIdentity: () => Promise<{ id: number; username?: string }>;
+  supabaseAdmin: any;
+}) {
+  const { replyChatId, currentChat, argText, telegramCall, getBotIdentity, supabaseAdmin } = args;
+  const rest = argText.replace(/^\/(track|addchannel)(@\S+)?\s*/i, "").trim();
+
+  let target: string | number | null = null;
+  if (rest) {
+    if (/^-?\d+$/.test(rest)) target = Number(rest);
+    else target = rest.startsWith("@") ? rest : `@${rest}`;
+  } else if (currentChat?.type !== "private") {
+    target = currentChat.id;
+  }
+
+  if (target === null) {
+    await telegramCall("sendMessage", {
+      chat_id: replyChatId,
+      parse_mode: "HTML",
+      text:
+        "Usage: <code>/track &lt;chat_id or @username&gt;</code>\n" +
+        "Or send <code>/track</code> inside the channel/group itself.\n\n" +
+        "Use this if I was made admin while I was offline and the chat is missing from /channels.",
+    });
+    return;
+  }
+
+  let info: any;
+  try {
+    info = await telegramCall("getChat", { chat_id: target });
+  } catch (e: any) {
+    await telegramCall("sendMessage", {
+      chat_id: replyChatId,
+      text: `❌ Couldn't reach that chat: ${e?.message ?? "unknown error"}`,
+    });
+    return;
+  }
+
+  const bot = await getBotIdentity();
+  let status: string | null = null;
+  try {
+    const m = await telegramCall("getChatMember", { chat_id: info.id, user_id: bot.id });
+    status = m?.status ?? null;
+  } catch { /* ignore */ }
+  const isAdmin = status === "administrator" || status === "creator";
+
+  await supabaseAdmin.from("telegram_chats").upsert(
+    {
+      chat_id: info.id,
+      title: info.title ?? info.username ?? `Chat ${info.id}`,
+      type: info.type,
+      username: info.username ?? null,
+      last_activity_at: new Date().toISOString(),
+    },
+    { onConflict: "chat_id" },
+  );
+  try {
+    await supabaseAdmin
+      .from("telegram_chats")
+      .update({
+        bot_status: status,
+        bot_is_admin: isAdmin,
+        bot_status_checked_at: new Date().toISOString(),
+      } as any)
+      .eq("chat_id", info.id);
+  } catch { /* columns optional */ }
+
+  // Capture an invite link while we still can.
+  if (isAdmin && !info.username) {
+    try {
+      let link: string | undefined = info?.invite_link;
+      if (!link) {
+        const created = await telegramCall("exportChatInviteLink", { chat_id: info.id });
+        if (typeof created === "string") link = created;
+      }
+      if (link) await supabaseAdmin.from("telegram_chats").update({ invite_link: link }).eq("chat_id", info.id);
+    } catch { /* ignore */ }
+  }
+
+  const title = escapeHtml(info.title ?? info.username ?? String(info.id));
+  await telegramCall("sendMessage", {
+    chat_id: replyChatId,
+    parse_mode: "HTML",
+    text: isAdmin
+      ? `✅ Tracking <b>${title}</b> (<code>${info.id}</code>) — I'm ${status} there. It will now show in /channels.`
+      : `⚠️ Saved <b>${title}</b> (<code>${info.id}</code>), but my status is <b>${status ?? "unknown"}</b>. Make me admin, then run /track again.`,
+  });
+}
+
 async function handleChannelsCommand(args: {
+
   dmChatId: number;
   supabaseAdmin: any;
   telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
