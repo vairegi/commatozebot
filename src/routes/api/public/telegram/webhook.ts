@@ -63,7 +63,7 @@ const HELP_COMPACT =
   "🧭 <b>General</b>\n" +
   "/start • /help • /description • /whoami • /ping • /restart • /id • /rules\n\n" +
   "📡 <b>Channels</b>\n" +
-  "/channels • /checkmember &lt;user_id|@username&gt; • /leave [chat_id] • /invite &lt;chat_id&gt;\n\n" +
+  "/channels • /track [chat_id] • /checkmember &lt;user_id|@username&gt; • /leave [chat_id] • /invite &lt;chat_id&gt;\n\n" +
   "📚 <b>Channel lists</b>\n" +
   "/lists • /showlist &lt;name&gt; • /createlist &lt;name&gt; [chat_id…] • /addtolist &lt;name&gt; &lt;chat_id…&gt; • /removefromlist &lt;name&gt; &lt;chat_id…&gt; • /dellist &lt;name&gt; • /adultchannels • /mangachannels\n\n" +
   "📣 <b>Broadcast</b>\n" +
@@ -100,6 +100,8 @@ const HELP_DETAILED =
   "/rules — show the group rules (in a group)\n\n" +
   "📡 <b>Channels</b> (bot admins)\n" +
   "/channels — DM only. List every group/channel where I'm admin, in the order I was added, with invite links.\n" +
+  "/track [chat_id|@username] — register a chat I'm already admin in (use if I was promoted while offline and it's missing from /channels). Works inside the chat too.\n" +
+
   "/checkmember &lt;user_id|@username&gt; — DM only. Check every chat where I'm admin and mark 👤 if that user is in it, ❌👤 if not.\n" +
   "/leave [chat_id] — make me leave the current chat, or (in DM) a chat by ID.\n" +
   "/invite &lt;chat_id&gt; — get or generate an invite link for a private chat.\n\n" +
@@ -946,7 +948,26 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
           return Response.json({ ok: true });
         }
 
+        // Channel posts: no command handling, but always keep the chat tracked.
+        // This self-heals chats whose my_chat_member update was missed (e.g. the
+        // backend was paused when the bot was promoted).
+        const chPost = update.channel_post ?? update.edited_channel_post;
+        if (chPost?.chat?.id) {
+          const cc = chPost.chat;
+          await supabaseAdmin.from("telegram_chats").upsert(
+            {
+              chat_id: cc.id,
+              title: cc.title ?? cc.username ?? `Chat ${cc.id}`,
+              type: cc.type,
+              username: cc.username ?? null,
+              last_activity_at: new Date().toISOString(),
+            },
+            { onConflict: "chat_id" },
+          );
+        }
+
         const message = update.message ?? update.edited_message;
+
         const newMembers = message?.new_chat_members as Array<any> | undefined;
         const leftMember = message?.left_chat_member;
         const chat = message?.chat;
@@ -1204,7 +1225,18 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 chat_id: chat.id,
                 text: c?.rules?.trim() ? `📜 Group Rules:\n\n${c.rules}` : "No rules have been set for this group yet.",
               });
+            } else if (cmd === "/track" || cmd === "/addchannel") {
+              await handleTrackCommand({
+                fromId: from.id,
+                replyChatId: chat.id,
+                currentChat: chat,
+                argText: text,
+                telegramCall,
+                getBotIdentity,
+                supabaseAdmin,
+              });
             } else if (cmd === "/channels") {
+
               if (chat.type !== "private") {
                 await telegramCall("sendMessage", {
                   chat_id: chat.id,
@@ -1341,7 +1373,107 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
   },
 });
 
+/**
+ * Manually register a chat the bot is already admin in. Needed when the
+ * promotion happened while the backend was offline/paused, so Telegram's
+ * my_chat_member update never reached us.
+ */
+async function handleTrackCommand(args: {
+  fromId: number;
+  replyChatId: number;
+  currentChat: any;
+  argText: string;
+  telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
+  getBotIdentity: () => Promise<{ id: number; username?: string }>;
+  supabaseAdmin: any;
+}) {
+  const { replyChatId, currentChat, argText, telegramCall, getBotIdentity, supabaseAdmin } = args;
+  const rest = argText.replace(/^\/(track|addchannel)(@\S+)?\s*/i, "").trim();
+
+  let target: string | number | null = null;
+  if (rest) {
+    if (/^-?\d+$/.test(rest)) target = Number(rest);
+    else target = rest.startsWith("@") ? rest : `@${rest}`;
+  } else if (currentChat?.type !== "private") {
+    target = currentChat.id;
+  }
+
+  if (target === null) {
+    await telegramCall("sendMessage", {
+      chat_id: replyChatId,
+      parse_mode: "HTML",
+      text:
+        "Usage: <code>/track &lt;chat_id or @username&gt;</code>\n" +
+        "Or send <code>/track</code> inside the channel/group itself.\n\n" +
+        "Use this if I was made admin while I was offline and the chat is missing from /channels.",
+    });
+    return;
+  }
+
+  let info: any;
+  try {
+    info = await telegramCall("getChat", { chat_id: target });
+  } catch (e: any) {
+    await telegramCall("sendMessage", {
+      chat_id: replyChatId,
+      text: `❌ Couldn't reach that chat: ${e?.message ?? "unknown error"}`,
+    });
+    return;
+  }
+
+  const bot = await getBotIdentity();
+  let status: string | null = null;
+  try {
+    const m = await telegramCall("getChatMember", { chat_id: info.id, user_id: bot.id });
+    status = m?.status ?? null;
+  } catch { /* ignore */ }
+  const isAdmin = status === "administrator" || status === "creator";
+
+  await supabaseAdmin.from("telegram_chats").upsert(
+    {
+      chat_id: info.id,
+      title: info.title ?? info.username ?? `Chat ${info.id}`,
+      type: info.type,
+      username: info.username ?? null,
+      last_activity_at: new Date().toISOString(),
+    },
+    { onConflict: "chat_id" },
+  );
+  try {
+    await supabaseAdmin
+      .from("telegram_chats")
+      .update({
+        bot_status: status,
+        bot_is_admin: isAdmin,
+        bot_status_checked_at: new Date().toISOString(),
+      } as any)
+      .eq("chat_id", info.id);
+  } catch { /* columns optional */ }
+
+  // Capture an invite link while we still can.
+  if (isAdmin && !info.username) {
+    try {
+      let link: string | undefined = info?.invite_link;
+      if (!link) {
+        const created = await telegramCall("exportChatInviteLink", { chat_id: info.id });
+        if (typeof created === "string") link = created;
+      }
+      if (link) await supabaseAdmin.from("telegram_chats").update({ invite_link: link }).eq("chat_id", info.id);
+    } catch { /* ignore */ }
+  }
+
+  const title = escapeHtml(info.title ?? info.username ?? String(info.id));
+  await telegramCall("sendMessage", {
+    chat_id: replyChatId,
+    parse_mode: "HTML",
+    text: isAdmin
+      ? `✅ Tracking <b>${title}</b> (<code>${info.id}</code>) — I'm ${status} there. It will now show in /channels.`
+      : `⚠️ Saved <b>${title}</b> (<code>${info.id}</code>), but my status is <b>${status ?? "unknown"}</b>. Make me admin, then run /track again.`,
+  });
+}
+
 async function handleChannelsCommand(args: {
+
   dmChatId: number;
   supabaseAdmin: any;
   telegramCall: (m: string, b?: Record<string, unknown>) => Promise<any>;
