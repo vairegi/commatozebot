@@ -63,7 +63,7 @@ const HELP_COMPACT =
   "🧭 <b>General</b>\n" +
   "/start • /help • /description • /whoami • /ping • /restart • /id • /rules\n\n" +
   "📡 <b>Channels</b>\n" +
-  "/channels • /checkmember &lt;user_id|@username&gt; • /leave [chat_id] • /invite &lt;chat_id&gt;\n\n" +
+  "/channels • /track [chat_id] • /checkmember &lt;user_id|@username&gt; • /leave [chat_id] • /invite &lt;chat_id&gt;\n\n" +
   "📚 <b>Channel lists</b>\n" +
   "/lists • /showlist &lt;name&gt; • /createlist &lt;name&gt; [chat_id…] • /addtolist &lt;name&gt; &lt;chat_id…&gt; • /removefromlist &lt;name&gt; &lt;chat_id…&gt; • /dellist &lt;name&gt; • /adultchannels • /mangachannels\n\n" +
   "📣 <b>Broadcast</b>\n" +
