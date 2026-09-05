@@ -946,7 +946,26 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
           return Response.json({ ok: true });
         }
 
+        // Channel posts: no command handling, but always keep the chat tracked.
+        // This self-heals chats whose my_chat_member update was missed (e.g. the
+        // backend was paused when the bot was promoted).
+        const chPost = update.channel_post ?? update.edited_channel_post;
+        if (chPost?.chat?.id) {
+          const cc = chPost.chat;
+          await supabaseAdmin.from("telegram_chats").upsert(
+            {
+              chat_id: cc.id,
+              title: cc.title ?? cc.username ?? `Chat ${cc.id}`,
+              type: cc.type,
+              username: cc.username ?? null,
+              last_activity_at: new Date().toISOString(),
+            },
+            { onConflict: "chat_id" },
+          );
+        }
+
         const message = update.message ?? update.edited_message;
+
         const newMembers = message?.new_chat_members as Array<any> | undefined;
         const leftMember = message?.left_chat_member;
         const chat = message?.chat;
