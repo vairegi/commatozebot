@@ -1223,7 +1223,18 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
                 chat_id: chat.id,
                 text: c?.rules?.trim() ? `📜 Group Rules:\n\n${c.rules}` : "No rules have been set for this group yet.",
               });
+            } else if (cmd === "/track" || cmd === "/addchannel") {
+              await handleTrackCommand({
+                fromId: from.id,
+                replyChatId: chat.id,
+                currentChat: chat,
+                argText: text,
+                telegramCall,
+                getBotIdentity,
+                supabaseAdmin,
+              });
             } else if (cmd === "/channels") {
+
               if (chat.type !== "private") {
                 await telegramCall("sendMessage", {
                   chat_id: chat.id,
