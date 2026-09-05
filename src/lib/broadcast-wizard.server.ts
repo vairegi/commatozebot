@@ -40,15 +40,17 @@ async function saveDraft(userId: number, patch: Record<string, any>) {
   // Update-then-insert instead of upsert: an upsert sends a full row and resets
   // any column missing from the patch (that silently wiped the post content
   // whenever a later step, e.g. adding buttons, saved only a couple of fields).
-  const { data: updated } = await supabaseAdmin
+  const { data: updated, error: updateError } = await supabaseAdmin
     .from("broadcast_drafts")
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq("user_id", userId)
     .select("user_id");
+  if (updateError) throw new Error(`Could not save broadcast draft: ${updateError.message}`);
   if (updated && (updated as any[]).length) return;
-  await supabaseAdmin
+  const { error: insertError } = await supabaseAdmin
     .from("broadcast_drafts")
     .insert({ user_id: userId, ...patch, updated_at: new Date().toISOString() });
+  if (insertError) throw new Error(`Could not create broadcast draft: ${insertError.message}`);
 }
 
 
@@ -69,6 +71,19 @@ function previewOf(message: any): string {
   if (message.sticker) return `[sticker] ${message.sticker.emoji ?? ""}`;
   if (message.poll) return `[poll] ${message.poll.question ?? ""}`;
   return "[message]";
+}
+
+/** Recover source coordinates from the raw Telegram message if an older or
+ * partially-written draft is missing its dedicated source columns. Styled
+ * Unicode captions are kept untouched in the raw message. */
+function sourceOf(draft: any): { chatId: number | null; messageId: number | null } {
+  const raw = draft?.source_message_json;
+  const chatId = Number(draft?.source_chat_id ?? raw?.chat?.id);
+  const messageId = Number(draft?.source_message_id ?? raw?.message_id);
+  return {
+    chatId: Number.isFinite(chatId) && chatId !== 0 ? chatId : null,
+    messageId: Number.isFinite(messageId) && messageId > 0 ? messageId : null,
+  };
 }
 
 /** Entry: handle /post, /broadcasts, /cancel. Returns true if command was handled. */
@@ -538,6 +553,7 @@ export async function handleBroadcastMessage(args: {
         source_message_ids: [message.message_id],
         media_group_id: String(message.media_group_id),
         preview_text: previewOf(message),
+        source_message_json: message,
         step: "collecting_album",
         selected_chat_ids: [],
       });
@@ -559,6 +575,7 @@ export async function handleBroadcastMessage(args: {
       source_message_ids: null,
       media_group_id: null,
       preview_text: previewOf(message),
+      source_message_json: message,
       step: "awaiting_channels",
       selected_chat_ids: [],
     });
@@ -1187,7 +1204,8 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
 
   // Preview: copy source message to the admin's DM so they see exactly what channels will get.
   if (op === "pv" && draft) {
-    if (!draft.source_chat_id || !draft.source_message_id) {
+    const source = sourceOf(draft);
+    if (!source.chatId || !source.messageId) {
       await telegramCall("answerCallbackQuery", { callback_query_id: cq.id, text: "No content yet.", show_alert: true });
       return true;
     }
@@ -1197,7 +1215,7 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
       if (albumIds.length > 1) {
         const res = await telegramCall("copyMessages", {
           chat_id: fromId,
-          from_chat_id: draft.source_chat_id,
+          from_chat_id: source.chatId,
           message_ids: albumIds,
         });
         if (draft.reply_markup) {
@@ -1208,8 +1226,8 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
       } else {
         await telegramCall("copyMessage", {
           chat_id: fromId,
-          from_chat_id: draft.source_chat_id,
-          message_id: draft.source_message_id,
+          from_chat_id: source.chatId,
+          message_id: source.messageId,
           ...(draft.reply_markup ? { reply_markup: draft.reply_markup } : {}),
         });
       }
@@ -1391,7 +1409,8 @@ export async function handleBroadcastCallback(cq: any): Promise<boolean> {
 async function commitDraft(fromId: number, fromName: string, chatId: number) {
   const d = await getDraft(fromId);
   if (!d) return;
-  if (!d.source_chat_id || !d.source_message_id || !(d.selected_chat_ids ?? []).length) {
+  const source = sourceOf(d);
+  if (!source.chatId || !source.messageId || !(d.selected_chat_ids ?? []).length) {
     await telegramCall("sendMessage", { chat_id: chatId, text: "❌ Draft incomplete." });
     await clearDraft(fromId);
     return;
@@ -1408,8 +1427,8 @@ async function commitDraft(fromId: number, fromName: string, chatId: number) {
     .insert({
       created_by: fromId,
       created_by_name: fromName,
-      source_chat_id: d.source_chat_id,
-      source_message_id: d.source_message_id,
+      source_chat_id: source.chatId,
+      source_message_id: source.messageId,
       source_message_ids: (d as any).source_message_ids?.length ? (d as any).source_message_ids : null,
       preview_text: d.preview_text,
       scheduled_at: d.scheduled_at,
